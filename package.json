@@ -1,13 +1,20 @@
 {
   "name": "react-native-nitro-protobuf",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "react-native-nitro-protobuf",
   "main": "lib/index",
   "module": "lib/index",
   "types": "lib/index.d.ts",
   "react-native": "src/index",
   "source": "src/index",
+  "bin": {
+    "react-native-nitro-protobuf": "scripts/generate-protos.mjs"
+  },
   "files": [
+    "cpp",
+    "generated",
+    "proto",
+    "scripts",
     "src",
     "react-native.config.js",
     "lib",
@@ -32,8 +39,15 @@
     "clean": "rm -rf android/build node_modules/**/android/build lib",
     "lint": "eslint \"**/*.{js,ts,tsx}\" --fix",
     "lint-ci": "eslint \"**/*.{js,ts,tsx}\" -f @jamesacarr/github-actions",
+    "proto:generate": "node scripts/generate-protos.mjs",
+    "test": "node --test",
     "typescript": "tsc",
-    "specs": "tsc --noEmit false && nitrogen --logLevel=\"debug\""
+    "specs": "tsc --noEmit false && nitrogen --logLevel=\"debug\"",
+    "example:install": "npm --prefix example install",
+    "example:proto": "npm --prefix example run proto:generate",
+    "example:start": "npm --prefix example run start",
+    "ios": "node scripts/run-example.mjs ios",
+    "android": "node scripts/run-example.mjs android"
   },
   "keywords": [
     "react-native",
@@ -41,14 +55,14 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mrousavy/nitro.git"
+    "url": "git+https://github.com/KlaappInc/react-native-nitro-protobuf.git"
   },
-  "author": "Marc Rousavy <me@mrousavy.com> (https://github.com/mrousavy)",
+  "author": "Klaapp Inc. (https://github.com/KlaappInc)",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/mrousavy/nitro/issues"
+    "url": "https://github.com/KlaappInc/react-native-nitro-protobuf/issues"
   },
-  "homepage": "https://github.com/mrousavy/nitro#readme",
+  "homepage": "https://github.com/KlaappInc/react-native-nitro-protobuf#readme",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/"
   },
@@ -64,6 +78,9 @@
     "react-native": "0.83.0",
     "react-native-nitro-modules": "*",
     "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "protobufjs": "^7.4.0"
   },
   "peerDependencies": {
     "react": "*",

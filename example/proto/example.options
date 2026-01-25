@@ -1,0 +1,6 @@
+acme.Address.street max_length: 64
+acme.User.name max_length: 32
+acme.User.avatar max_size: 32
+acme.User.scores max_count: 8
+acme.User.tags max_length: 16
+acme.User.tags max_count: 4

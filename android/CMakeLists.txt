@@ -6,8 +6,17 @@ set (CMAKE_VERBOSE_MAKEFILE ON)
 set (CMAKE_CXX_STANDARD 20)
 
 # Define C++ library and add all sources
+file(GLOB NITRO_PROTOBUF_CPP_SOURCES "../cpp/*.cpp")
+file(GLOB NITRO_PROTOBUF_GENERATED_CPP "../generated/*.cpp")
+file(GLOB NITRO_PROTOBUF_GENERATED_C "../generated/*.pb.c")
+file(GLOB NITRO_PROTOBUF_NANOPB "../cpp/nanopb/*.c")
+
 add_library(${PACKAGE_NAME} SHARED
         src/main/cpp/cpp-adapter.cpp
+        ${NITRO_PROTOBUF_CPP_SOURCES}
+        ${NITRO_PROTOBUF_GENERATED_CPP}
+        ${NITRO_PROTOBUF_GENERATED_C}
+        ${NITRO_PROTOBUF_NANOPB}
 )
 
 # Add Nitrogen specs :)
@@ -17,6 +26,8 @@ include(${CMAKE_SOURCE_DIR}/../nitrogen/generated/android/NitroProtobuf+autolink
 include_directories(
         "src/main/cpp"
         "../cpp"
+        "../cpp/nanopb"
+        "../generated"
 )
 
 find_library(LOG_LIB log)

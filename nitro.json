@@ -12,7 +12,11 @@
     ],
     "androidCxxLibName": "NitroProtobuf"
   },
-  "autolinking": {},
+  "autolinking": {
+    "Protobuf": {
+      "cpp": "HybridProtobuf"
+    }
+  },
   "ignorePaths": [
     "**/node_modules"
   ]

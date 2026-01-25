@@ -1,0 +1,21 @@
+syntax = "proto3";
+package acme;
+
+message Address {
+  string street = 1;
+  uint32 zip = 2;
+}
+
+message User {
+  uint32 id = 1;
+  string name = 2;
+  bytes avatar = 3;
+  repeated int32 scores = 4;
+  bool active = 5;
+  Address address = 6;
+  repeated string tags = 7;
+  int64 delta = 8;
+  uint64 big = 9;
+  float ratio = 10;
+  double weight = 11;
+}

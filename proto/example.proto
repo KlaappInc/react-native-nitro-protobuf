@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package nitro.protobuf;
+
+message UserProfile {
+  uint32 id = 1;
+  string name = 2;
+  repeated uint32 scores = 3;
+  bytes avatar = 4;
+  bool active = 5;
+}

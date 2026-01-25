@@ -11,7 +11,7 @@ Pod::Spec.new do |s|
   s.authors      = package["author"]
 
   s.platforms    = { :ios => min_ios_version_supported, :visionos => 1.0 }
-  s.source       = { :git => "https://github.com/mrousavy/nitro.git", :tag => "#{s.version}" }
+  s.source       = { :git => "https://github.com/KlaappInc/react-native-nitro-protobuf.git", :tag => "#{s.version}" }
 
   s.source_files = [
     # Implementation (Swift)
@@ -19,8 +19,14 @@ Pod::Spec.new do |s|
     # Autolinking/Registration (Objective-C++)
     "ios/**/*.{m,mm}",
     # Implementation (C++ objects)
-    "cpp/**/*.{hpp,cpp}",
+    "cpp/**/*.{hpp,cpp,c}",
+    # Generated protos + registry
+    "generated/**/*.{h,hpp,c,cpp}",
   ]
+
+  s.pod_target_xcconfig = {
+    'HEADER_SEARCH_PATHS' => '$(inherited) "$(PODS_TARGET_SRCROOT)/cpp/nanopb"',
+  }
 
   load 'nitrogen/generated/ios/NitroProtobuf+autolinking.rb'
   add_nitrogen_files(s)
