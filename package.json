@@ -63,9 +63,6 @@
     "url": "https://github.com/KlaappInc/react-native-nitro-protobuf/issues"
   },
   "homepage": "https://github.com/KlaappInc/react-native-nitro-protobuf#readme",
-  "publishConfig": {
-    "registry": "https://registry.npmjs.org/"
-  },
   "devDependencies": {
     "@react-native/eslint-config": "0.83.0",
     "@types/react": "^19.1.03",
