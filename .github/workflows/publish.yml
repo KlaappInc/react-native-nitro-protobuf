@@ -1,0 +1,41 @@
+name: Publish Package
+
+on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://npm.pkg.github.com
+          scope: '@klaappinc'
+
+      - run: npm install
+
+      - run: npm test
+
+      - name: Ensure scoped package name
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          echo "Package name: $NAME"
+          if [[ "$NAME" != @klaappinc/* ]]; then
+            echo "GitHub Packages for npm requires a scoped name like @klaappinc/..."
+            exit 1
+          fi
+
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
