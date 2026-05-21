@@ -966,6 +966,24 @@ async function runGenerate(args) {
 
   // oneof fields work; map<> fields are encoded/decoded via their registered
   // entry type (see codec). Struct/Value/ListValue/Any still need recursion.
+  // proto2 optional/required/repeated/defaults are supported; extensions and
+  // groups are not - fail clearly rather than emit a broken codec.
+  for (const message of messages) {
+    for (const field of message.fieldsArray) {
+      if (field.extend != null) {
+        throw new Error(
+          `Unsupported field "${cleanName(message.fullName)}.${field.name}": ` +
+            'proto2 extensions are not supported (see ROADMAP.md).'
+        )
+      }
+      if (field.type === 'group' || field.group) {
+        throw new Error(
+          `Unsupported field "${cleanName(message.fullName)}.${field.name}": ` +
+            'proto2 groups are not supported; use a nested message instead.'
+        )
+      }
+    }
+  }
 
   // Validate nanopb .options for static fields. Skipped with --skipProtoc,
   // which only emits the registry (no nanopb compilation) - used by unit tests.

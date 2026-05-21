@@ -134,6 +134,23 @@ test('native round-trip encode/decode', (t) => {
     'utf8'
   )
 
+  // proto2: explicit presence (has_), required, repeated, defaults.
+  fs.writeFileSync(
+    path.join(protoDir, 'p2.proto'),
+    [
+      'syntax = "proto2";',
+      'package acme;',
+      'message P2 {',
+      '  required uint32 id = 1;',
+      '  optional string name = 2 [default = "anon"];',
+      '  repeated int32 nums = 3;',
+      '  optional bool active = 4;',
+      '  optional int64 big = 5;',
+      '}',
+    ].join('\n'),
+    'utf8'
+  )
+
   const generate = run(
     process.execPath,
     [
@@ -349,6 +366,29 @@ test('native round-trip encode/decode', (t) => {
       '    auto innerOut = d3->getObject("inner");',
       '    expect(std::get<std::string>(innerOut.at("label")) == "hi", "oneof: nested label round-trip");',
       '    expect(d3->getMap().count("name") == 0 && d3->getMap().count("age") == 0, "oneof: scalars absent when msg set");',
+      '  }',
+      '',
+      '  // proto2 round-trip: required + optional(has_) + repeated.',
+      '  const MessageInfo* p2Info = getMessageInfo("acme.P2");',
+      '  expect(p2Info != nullptr, "P2 (proto2) message available");',
+      '  if (p2Info != nullptr) {',
+      '    auto a = AnyMap::make();',
+      '    a->setDouble("id", 7);',
+      '    a->setString("name", "x");',
+      '    a->setBoolean("active", true);',
+      '    a->setString("big", "9007199254740993");',
+      '    AnyArray nums; nums.emplace_back(AnyValue(1.0)); nums.emplace_back(AnyValue(2.0));',
+      '    a->setArray("nums", nums);',
+      '    auto d = decodeMessage(*p2Info, encodeMessage(*p2Info, a));',
+      '    expect(d->getDouble("id") == 7, "proto2: required round-trip");',
+      '    expect(d->getString("name") == "x", "proto2: optional string round-trip");',
+      '    expect(d->getBoolean("active") == true, "proto2: optional bool round-trip");',
+      '    expect(d->getString("big") == "9007199254740993", "proto2: optional int64 round-trip");',
+      '    expect(d->getArray("nums").size() == 2, "proto2: repeated round-trip");',
+      '    // Unset optional is omitted on decode (not the proto default).',
+      '    auto b = AnyMap::make(); b->setDouble("id", 1);',
+      '    auto db = decodeMessage(*p2Info, encodeMessage(*p2Info, b));',
+      '    expect(db->getMap().count("name") == 0, "proto2: unset optional omitted");',
       '  }',
       '',
       '  if (failures > 0) {',

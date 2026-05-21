@@ -134,6 +134,40 @@ test('marks map and oneof fields', () => {
   )
 })
 
+test('proto2 generates (required / optional / repeated)', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nitro-proto-'))
+  const protoDir = path.join(tmp, 'proto')
+  const outDir = path.join(tmp, 'generated')
+
+  writeProto(
+    protoDir,
+    'p2.proto',
+    [
+      'syntax = "proto2";',
+      'package acme;',
+      'message P2 {',
+      '  required uint32 id = 1;',
+      '  optional string name = 2 [default = "anon"];',
+      '  repeated int32 nums = 3;',
+      '}',
+    ].join('\n')
+  )
+  const ok = runGenerator(
+    ['--protoDir', protoDir, '--outDir', outDir, '--skipProtoc'],
+    tmp
+  )
+  assert.equal(ok.status, 0, ok.stderr || ok.stdout)
+  const registry = fs.readFileSync(
+    path.join(outDir, 'nitro_protobuf_registry.cpp'),
+    'utf8'
+  )
+  assert.match(registry, /"acme\.P2"/)
+  assert.match(registry, /\{"id",\s*1,\s*FieldType::UInt32/)
+  const types = fs.readFileSync(path.join(outDir, 'nitro-protobuf.ts'), 'utf8')
+  assert.match(types, /name\?: string/)
+  assert.match(types, /nums\?: \(number\)\[\]/)
+})
+
 test('map fields type as objects; map values convert (WKT)', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nitro-proto-'))
   const protoDir = path.join(tmp, 'proto')
