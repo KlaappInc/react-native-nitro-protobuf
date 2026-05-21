@@ -95,6 +95,47 @@ function resolveNanopbPlugin(args) {
   return plugin
 }
 
+// The grpc-tools-bundled protoc ships the well-known-type protos under
+// <grpc-tools>/bin/google/protobuf/*.proto. Returns that include root (the dir
+// that contains `google/`) so `import "google/protobuf/timestamp.proto"` works.
+function wktIncludeDir() {
+  try {
+    const require = createRequire(import.meta.url)
+    const pkg = require.resolve('grpc-tools/package.json')
+    const dir = path.join(path.dirname(pkg), 'bin')
+    if (
+      fs.existsSync(path.join(dir, 'google', 'protobuf', 'timestamp.proto'))
+    ) {
+      return dir
+    }
+  } catch {
+    // grpc-tools unavailable; WKT imports must be resolvable another way.
+  }
+  return null
+}
+
+// Scan the given .proto files for `import "google/protobuf/X.proto"` and return
+// the absolute paths of the imported WKT files (so nanopb also generates them).
+function collectWktImports(protoFiles, wktDir) {
+  const found = new Set()
+  if (!wktDir) return []
+  for (const file of protoFiles) {
+    let text = ''
+    try {
+      text = fs.readFileSync(file, 'utf8')
+    } catch {
+      continue
+    }
+    for (const m of text.matchAll(
+      /import\s+(?:public\s+)?"(google\/protobuf\/[^"]+)"/g
+    )) {
+      const abs = path.join(wktDir, m[1])
+      if (fs.existsSync(abs)) found.add(abs)
+    }
+  }
+  return [...found]
+}
+
 function usage() {
   return [
     'Usage: react-native-nitro-protobuf <command> [options]',
@@ -112,6 +153,7 @@ function usage() {
     '  --nanopb <path>        Path to protoc-gen-nanopb (default: auto-installed)',
     '  --strict               Require explicit .options for every static field',
     '  --skipProtoc           Skip protoc invocation (registry only)',
+    '  --watch, -w            Regenerate on .proto changes (debounced)',
     '  --help                 Show help',
     '',
     'Field size limits default to 256/256/16 (max_length/max_size/max_count).',
@@ -139,6 +181,8 @@ function parseArgs(argv) {
       args.skipProtoc = true
     } else if (arg === '--strict') {
       args.strict = true
+    } else if (arg === '--watch' || arg === '-w') {
+      args.watch = true
     } else if (arg === '--help' || arg === '-h') {
       args.help = true
     } else {
@@ -325,7 +369,14 @@ function loadConfig(cwd) {
 // wildcard defaults (so every static field is sized without hand-written
 // options) followed by the user's own .options (specific entries override the
 // `*` defaults). Returns the temp dir to pass via `--nanopb_opt=-I`.
-function writeMergedOptions(protoFiles, includeDirs, defaults, outDir) {
+function writeMergedOptions(
+  protoFiles,
+  includeDirs,
+  defaults,
+  outDir,
+  wktImports = [],
+  wktDir = null
+) {
   const tempDir = path.join(outDir, '.nanopb-options')
   fs.rmSync(tempDir, { recursive: true, force: true })
   fs.mkdirSync(tempDir, { recursive: true })
@@ -352,6 +403,17 @@ function writeMergedOptions(protoFiles, includeDirs, defaults, outDir) {
           : '')
     )
   }
+  // Well-known types need the wildcard defaults too (e.g. FieldMask.paths is a
+  // repeated string -> static array). nanopb keys options off the import path,
+  // so write them at the matching relative path (google/protobuf/<name>.options).
+  for (const wkt of wktImports) {
+    const rel = (
+      wktDir ? path.relative(wktDir, wkt) : path.basename(wkt)
+    ).replace(/\.proto$/, '.options')
+    const target = path.join(tempDir, rel)
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.writeFileSync(target, header)
+  }
   return tempDir
 }
 
@@ -365,11 +427,20 @@ function tsTypeName(fullName) {
     .join('')
 }
 
-// Map a proto field to the codec's JS representation.
+const WKT_TIMESTAMP = 'google.protobuf.Timestamp'
+const WKT_DURATION = 'google.protobuf.Duration'
+const cleanName = (fullName) =>
+  fullName.startsWith('.') ? fullName.slice(1) : fullName
+
+// Map a proto field to the codec's JS representation. Well-known Timestamp /
+// Duration get a natural JS mapping (Date|string / number-of-ms).
 function tsFieldType(field) {
   let base
   if (field.resolvedType instanceof protobuf.Type) {
-    base = tsTypeName(field.resolvedType.fullName)
+    const fn = cleanName(field.resolvedType.fullName)
+    if (fn === WKT_TIMESTAMP) base = 'Date | string'
+    else if (fn === WKT_DURATION) base = 'number'
+    else base = tsTypeName(field.resolvedType.fullName)
   } else if (field.resolvedType instanceof protobuf.Enum) {
     base = 'number'
   } else {
@@ -397,13 +468,59 @@ function tsFieldType(field) {
   return field.repeated ? `(${base})[]` : base
 }
 
-// Per-message TS interfaces (codec JS shapes) + a typed encode/decode facade.
+// Per-message TS interfaces + typed `Message.encode/decode` objects + a generic
+// facade. Timestamp/Duration fields are converted to/from Date|ISO / ms via a
+// spec-driven recursive transform.
 function generateTypes(messages) {
   const out = ['// Auto-generated by react-native-nitro-protobuf. Do not edit.']
   out.push(
     "import { NitroProtobuf } from '@klaappinc/react-native-nitro-protobuf'",
     ''
   )
+
+  const byName = new Map(messages.map((m) => [cleanName(m.fullName), m]))
+  const fieldKind = (field) => {
+    if (!(field.resolvedType instanceof protobuf.Type)) return null
+    const fn = cleanName(field.resolvedType.fullName)
+    if (fn === WKT_TIMESTAMP) return 'ts'
+    if (fn === WKT_DURATION) return 'dur'
+    return fn // nested message name
+  }
+  const convCache = new Map()
+  const needsConv = (name, stack = new Set()) => {
+    if (convCache.has(name)) return convCache.get(name)
+    if (stack.has(name)) return false
+    stack.add(name)
+    const m = byName.get(name)
+    let res = false
+    if (m) {
+      for (const f of m.fieldsArray) {
+        const k = fieldKind(f)
+        if (k === 'ts' || k === 'dur') {
+          res = true
+          break
+        }
+        if (k && byName.has(k) && needsConv(k, stack)) {
+          res = true
+          break
+        }
+      }
+    }
+    convCache.set(name, res)
+    return res
+  }
+  const specFor = (name) => {
+    const m = byName.get(name)
+    const spec = {}
+    if (!m) return spec
+    for (const f of m.fieldsArray) {
+      const k = fieldKind(f)
+      if (k === 'ts' || k === 'dur') spec[f.name] = k
+      else if (k && byName.has(k) && needsConv(k)) spec[f.name] = k
+    }
+    return spec
+  }
+
   for (const m of messages) {
     out.push(`export interface ${tsTypeName(m.fullName)} {`)
     for (const f of m.fieldsArray) {
@@ -411,30 +528,104 @@ function generateTypes(messages) {
     }
     out.push('}', '')
   }
+
   out.push('export interface NitroProtobufMessages {')
   for (const m of messages) {
-    const full = m.fullName.startsWith('.') ? m.fullName.slice(1) : m.fullName
-    out.push(`  '${full}': ${tsTypeName(m.fullName)}`)
+    out.push(`  '${cleanName(m.fullName)}': ${tsTypeName(m.fullName)}`)
   }
   out.push('}', '')
   out.push(
     'export type NitroProtobufMessageName = keyof NitroProtobufMessages',
-    '',
+    ''
+  )
+
+  const conv = {}
+  for (const m of messages) {
+    const s = specFor(cleanName(m.fullName))
+    if (Object.keys(s).length) conv[cleanName(m.fullName)] = s
+  }
+  out.push(
+    `const _conv: Record<string, Record<string, string>> = ${JSON.stringify(conv)}`,
+    'function _toTimestamp(v: Date | string | number) {',
+    '  const ms = v instanceof Date ? v.getTime() : typeof v === "number" ? v : Date.parse(v)',
+    '  return { seconds: String(Math.trunc(ms / 1000)), nanos: Math.trunc((ms % 1000) * 1e6) }',
+    '}',
+    'function _fromTimestamp(t: any): string {',
+    '  const ms = Number(t?.seconds ?? 0) * 1000 + Math.trunc(Number(t?.nanos ?? 0) / 1e6)',
+    '  return new Date(ms).toISOString()',
+    '}',
+    'function _toDuration(ms: number) {',
+    '  return { seconds: String(Math.trunc(ms / 1000)), nanos: Math.trunc((ms % 1000) * 1e6) }',
+    '}',
+    'function _fromDuration(d: any): number {',
+    '  return Number(d?.seconds ?? 0) * 1000 + Number(d?.nanos ?? 0) / 1e6',
+    '}',
+    'function _enc1(kind: string, v: any): any {',
+    '  if (v == null) return v',
+    '  if (kind === "ts") return _toTimestamp(v)',
+    '  if (kind === "dur") return _toDuration(v)',
+    '  return _encodeShape(kind, v)',
+    '}',
+    'function _dec1(kind: string, v: any): any {',
+    '  if (v == null) return v',
+    '  if (kind === "ts") return _fromTimestamp(v)',
+    '  if (kind === "dur") return _fromDuration(v)',
+    '  return _decodeShape(kind, v)',
+    '}',
+    'function _encodeShape(name: string, m: any): any {',
+    '  const spec = _conv[name]',
+    '  if (!spec || m == null || typeof m !== "object") return m',
+    '  const o: any = { ...m }',
+    '  for (const f in spec) {',
+    '    if (o[f] == null) continue',
+    '    o[f] = Array.isArray(o[f]) ? o[f].map((x: any) => _enc1(spec[f], x)) : _enc1(spec[f], o[f])',
+    '  }',
+    '  return o',
+    '}',
+    'function _decodeShape(name: string, m: any): any {',
+    '  const spec = _conv[name]',
+    '  if (!spec || m == null || typeof m !== "object") return m',
+    '  const o: any = { ...m }',
+    '  for (const f in spec) {',
+    '    if (o[f] == null) continue',
+    '    o[f] = Array.isArray(o[f]) ? o[f].map((x: any) => _dec1(spec[f], x)) : _dec1(spec[f], o[f])',
+    '  }',
+    '  return o',
+    '}',
+    ''
+  )
+
+  out.push(
     'export function encode<K extends NitroProtobufMessageName>(',
     '  name: K,',
     '  message: NitroProtobufMessages[K]',
     '): ArrayBuffer {',
-    '  return NitroProtobuf.encode(name, message as never)',
+    '  return NitroProtobuf.encode(name, _encodeShape(name, message) as never)',
     '}',
     '',
     'export function decode<K extends NitroProtobufMessageName>(',
     '  name: K,',
     '  data: ArrayBuffer',
     '): NitroProtobufMessages[K] {',
-    '  return NitroProtobuf.decode(name, data) as NitroProtobufMessages[K]',
+    '  return _decodeShape(name, NitroProtobuf.decode(name, data)) as NitroProtobufMessages[K]',
     '}',
     ''
   )
+
+  // Typed per-message objects (merge with the same-named interface): no magic
+  // strings, full inference -> `AcmeUser.encode(u)` / `AcmeUser.decode(b)`.
+  for (const m of messages) {
+    const T = tsTypeName(m.fullName)
+    const full = cleanName(m.fullName)
+    out.push(
+      `export const ${T} = {`,
+      `  messageName: '${full}' as const,`,
+      `  encode: (m: ${T}): ArrayBuffer => NitroProtobuf.encode('${full}', _encodeShape('${full}', m) as never),`,
+      `  decode: (b: ArrayBuffer): ${T} => _decodeShape('${full}', NitroProtobuf.decode('${full}', b)) as ${T},`,
+      '}',
+      ''
+    )
+  }
   return out.join('\n')
 }
 
@@ -495,18 +686,7 @@ function runInit(cwd) {
   )
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2))
-  if (args.help) {
-    console.log(usage())
-    return
-  }
-
-  if (args._[0] === 'init') {
-    runInit(process.cwd())
-    return
-  }
-
+async function runGenerate(args) {
   if (args._[0] === 'generate') {
     args._.shift()
   }
@@ -523,9 +703,11 @@ async function main() {
   )
   const defaults = { ...DEFAULT_LIMITS, ...(config.defaults ?? {}) }
   const strict = args.strict ?? config.strict ?? false
+  const wktDir = wktIncludeDir()
   const includeDirs = [
     protoDir,
     ...(args.protoPath ?? []).map((dir) => path.resolve(cwd, dir)),
+    ...(wktDir ? [wktDir] : []), // google/protobuf/*.proto (well-known types)
   ]
   if (!fs.existsSync(protoDir)) {
     throw new Error(`Proto directory not found: ${protoDir}`)
@@ -535,6 +717,8 @@ async function main() {
   if (protoFiles.length === 0) {
     throw new Error(`No .proto files found in ${protoDir}`)
   }
+  // Imported well-known-type files must also be generated by nanopb.
+  const wktImports = collectWktImports(protoFiles, wktDir)
 
   fs.mkdirSync(outDir, { recursive: true })
 
@@ -551,14 +735,16 @@ async function main() {
         protoFiles,
         includeDirs,
         defaults,
-        outDir
+        outDir,
+        wktImports,
+        wktDir
       )
       protocArgs.push(`--nanopb_opt=-I${optsDir}`)
     }
     includeDirs.forEach((dir) => protocArgs.push(`--nanopb_opt=-I${dir}`))
     protocArgs.push(`--plugin=protoc-gen-nanopb=${nanopbPlugin}`)
     protocArgs.push(`--nanopb_out=${outDir}`)
-    protocArgs.push(...protoFiles)
+    protocArgs.push(...protoFiles, ...wktImports)
 
     execFileSync(protoc, protocArgs, { stdio: 'inherit' })
   }
@@ -599,6 +785,10 @@ async function main() {
 
   messages.sort((a, b) => a.fullName.localeCompare(b.fullName))
 
+  // map<> and oneof fields are marked in the registry; the codec rejects them at
+  // encode time with a clear message (see ROADMAP.md). This also covers
+  // google.protobuf.Struct/Value/ListValue/Any, which are built on map/oneof.
+
   // Validate nanopb .options for static fields. Skipped with --skipProtoc,
   // which only emits the registry (no nanopb compilation) - used by unit tests.
   // In --strict mode, require explicit options for every static field (no
@@ -607,9 +797,12 @@ async function main() {
     validateOptions(messages, loadOptionsKeys(includeDirs))
   }
 
-  const headerIncludes = new Set(
-    protoFiles.map((file) => `${path.basename(file, '.proto')}.pb.h`)
-  )
+  const headerIncludes = new Set([
+    ...protoFiles.map((file) => `${path.basename(file, '.proto')}.pb.h`),
+    ...wktImports.map((file) =>
+      path.relative(wktDir, file).replace(/\.proto$/, '.pb.h')
+    ),
+  ])
 
   const lines = []
   lines.push('// This file is auto-generated. Do not edit.')
@@ -735,6 +928,55 @@ async function main() {
   const typesPath = path.join(tsOut, 'nitro-protobuf.ts')
   fs.writeFileSync(typesPath, generateTypes(messages))
   console.log(`Generated types at ${typesPath}`)
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2))
+  if (args.help) {
+    console.log(usage())
+    return
+  }
+  if (args._[0] === 'init') {
+    runInit(process.cwd())
+    return
+  }
+
+  await runGenerate(args)
+
+  if (args.watch) {
+    const cwd = process.cwd()
+    const config = loadConfig(cwd)
+    const protoDir = path.resolve(
+      cwd,
+      args.protoDir ?? config.protoDir ?? 'proto'
+    )
+    console.error(`[nitro-protobuf] watching ${protoDir} (Ctrl-C to stop)`)
+    let timer = null
+    let running = false
+    const trigger = () => {
+      clearTimeout(timer)
+      timer = setTimeout(async () => {
+        if (running) return
+        running = true
+        try {
+          await runGenerate(args)
+          console.error('[nitro-protobuf] regenerated')
+        } catch (e) {
+          console.error(
+            '[nitro-protobuf]',
+            e instanceof Error ? e.message : String(e)
+          )
+        } finally {
+          running = false
+        }
+      }, 150)
+    }
+    fs.watch(protoDir, { recursive: true }, (_event, file) => {
+      if (file && !file.endsWith('.proto')) return
+      trigger()
+    })
+    await new Promise(() => {}) // keep the process alive until killed
+  }
 }
 
 main().catch((error) => {

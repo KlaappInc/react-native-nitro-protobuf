@@ -8,7 +8,12 @@ import { fileURLToPath } from 'node:url'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const scriptPath = path.resolve(__dirname, '..', 'scripts', 'generate-protos.mjs')
+const scriptPath = path.resolve(
+  __dirname,
+  '..',
+  'scripts',
+  'generate-protos.mjs'
+)
 
 function runGenerator(args, cwd) {
   return spawnSync(process.execPath, [scriptPath, ...args], {
@@ -127,6 +132,64 @@ test('marks map and oneof fields', () => {
     registry,
     /\{"age",\s*3,\s*FieldType::Int32,\s*false,\s*true,\s*false/
   )
+})
+
+test('resolves well-known types and emits typed API + conversions', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nitro-proto-'))
+  const protoDir = path.join(tmp, 'proto')
+  const outDir = path.join(tmp, 'generated')
+
+  writeProto(
+    protoDir,
+    'evt.proto',
+    [
+      'syntax = "proto3";',
+      'package acme;',
+      '',
+      'import "google/protobuf/timestamp.proto";',
+      'import "google/protobuf/duration.proto";',
+      'import "google/protobuf/field_mask.proto";',
+      '',
+      'message Event {',
+      '  string id = 1;',
+      '  google.protobuf.Timestamp created_at = 2;',
+      '  google.protobuf.Duration ttl = 3;',
+      '  google.protobuf.FieldMask mask = 4;',
+      '  repeated google.protobuf.Timestamp checkpoints = 5;',
+      '}',
+    ].join('\n')
+  )
+
+  // --skipProtoc still resolves imports via protobuf.js (no nanopb needed).
+  const result = runGenerator(
+    ['--protoDir', protoDir, '--outDir', outDir, '--skipProtoc'],
+    tmp
+  )
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+
+  const registry = fs.readFileSync(
+    path.join(outDir, 'nitro_protobuf_registry.cpp'),
+    'utf8'
+  )
+  // WKT messages are registered so nested fields resolve in the codec.
+  assert.match(registry, /"google\.protobuf\.Timestamp"/)
+  assert.match(registry, /"google\.protobuf\.Duration"/)
+  assert.match(registry, /"google\.protobuf\.FieldMask"/)
+  assert.match(registry, /#include "google\/protobuf\/timestamp\.pb\.h"/)
+
+  const types = fs.readFileSync(path.join(outDir, 'nitro-protobuf.ts'), 'utf8')
+  // Natural JS mapping for Timestamp / Duration.
+  assert.match(types, /created_at\?: Date \| string/)
+  assert.match(types, /ttl\?: number/)
+  assert.match(types, /checkpoints\?: \(Date \| string\)\[\]/)
+  // Spec-driven conversion table + typed per-message object.
+  assert.match(
+    types,
+    /"acme\.Event":\{"created_at":"ts","ttl":"dur","checkpoints":"ts"\}/
+  )
+  assert.match(types, /export const AcmeEvent = \{/)
+  assert.match(types, /messageName: 'acme\.Event' as const/)
+  assert.match(types, /_toTimestamp|_fromTimestamp/)
 })
 
 test('fails when proto directory is missing', () => {
