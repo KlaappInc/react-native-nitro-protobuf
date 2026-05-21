@@ -16,7 +16,8 @@
     "@react-native/new-app-screen": "0.85.3",
     "react-native-safe-area-context": "^5.8.0",
     "react-native-nitro-modules": "0.35.7",
-    "react-native-nitro-protobuf": "file:.."
+    "react-native-nitro-protobuf": "file:..",
+    "protobufjs": "^8.4.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

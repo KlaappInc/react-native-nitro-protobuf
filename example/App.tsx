@@ -14,6 +14,7 @@ import {
   SafeAreaView,
 } from 'react-native-safe-area-context';
 import { NitroProtobuf } from 'react-native-nitro-protobuf';
+import { runBench, formatResults } from './src/bench';
 
 const MESSAGE_NAME = 'acme.User';
 
@@ -125,6 +126,7 @@ function App() {
   const [result, setResult] = useState<ResultState>({});
   const [messageName, setMessageName] = useState(MESSAGE_NAME);
   const [payloadText, setPayloadText] = useState(SAMPLE_PAYLOAD_TEXT);
+  const [benchStatus, setBenchStatus] = useState('');
   const headerAnim = useRef(new Animated.Value(0)).current;
   const cardAnims = useRef([
     new Animated.Value(0),
@@ -203,6 +205,19 @@ function App() {
     setMessageName(MESSAGE_NAME);
     setPayloadText(SAMPLE_PAYLOAD_TEXT);
     setResult({});
+  }, []);
+
+  const runBenchmark = useCallback(() => {
+    setBenchStatus('Running benchmark… (~40s)');
+    // Defer so the status text paints before the blocking bench loop runs.
+    setTimeout(() => {
+      try {
+        const r = runBench(Platform.OS);
+        setBenchStatus('BENCH_DONE\n' + formatResults(r));
+      } catch (e) {
+        setBenchStatus('Bench error: ' + (e instanceof Error ? e.message : String(e)));
+      }
+    }, 50);
   }, []);
 
   useEffect(() => {
@@ -291,6 +306,17 @@ function App() {
                   <Text style={styles.buttonText}>Run round-trip</Text>
                 </Pressable>
               </View>
+              <Pressable
+                style={[styles.button, styles.buttonSecondary]}
+                onPress={runBenchmark}
+              >
+                <Text style={[styles.buttonText, styles.buttonTextSecondary]}>
+                  Run benchmark
+                </Text>
+              </Pressable>
+              {benchStatus ? (
+                <Text style={styles.meta}>{benchStatus}</Text>
+              ) : null}
             </View>
           </Animated.View>
 
