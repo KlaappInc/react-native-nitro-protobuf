@@ -12,7 +12,9 @@ import { PROFILES, PROFILE_ORDER } from './payloads.mjs'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(__dirname, '..')
 
-const root = protobuf.loadSync(path.join(repoRoot, 'example', 'proto', 'example.proto'))
+const root = protobuf.loadSync(
+  path.join(repoRoot, 'example', 'proto', 'example.proto')
+)
 const User = root.lookupType('acme.User')
 const Long = protobuf.util.Long
 if (!Long) throw new Error('protobuf.js long support unavailable')
@@ -54,7 +56,14 @@ function measure(op) {
   }
   s.sort()
   const pct = (p) => s[Math.floor(p * (s.length - 1))]
-  return { nsop, opsps: 1e9 / nsop, p50: pct(0.5), p95: pct(0.95), p99: pct(0.99), min: s[0] }
+  return {
+    nsop,
+    opsps: 1e9 / nsop,
+    p50: pct(0.5),
+    p95: pct(0.95),
+    p99: pct(0.99),
+    min: s[0],
+  }
 }
 
 let sink = 0
@@ -69,10 +78,18 @@ for (const name of PROFILE_ORDER) {
   const pbBuf = User.encode(msg).finish()
   const jsonStr = JSON.stringify(profile)
 
-  const pbEnc = measure(() => { sink ^= User.encode(User.create(pbObj)).finish().length })
-  const pbDec = measure(() => { sink ^= User.decode(pbBuf).id })
-  const jsonEnc = measure(() => { sink ^= JSON.stringify(profile).length })
-  const jsonDec = measure(() => { sink ^= JSON.parse(jsonStr).id })
+  const pbEnc = measure(() => {
+    sink ^= User.encode(User.create(pbObj)).finish().length
+  })
+  const pbDec = measure(() => {
+    sink ^= User.decode(pbBuf).id
+  })
+  const jsonEnc = measure(() => {
+    sink ^= JSON.stringify(profile).length
+  })
+  const jsonDec = measure(() => {
+    sink ^= JSON.parse(jsonStr).id
+  })
 
   results.push({
     profile: name,
@@ -83,12 +100,17 @@ for (const name of PROFILE_ORDER) {
   })
 }
 
-fs.writeFileSync(path.join(__dirname, 'results-js.json'), JSON.stringify(results, null, 2))
+fs.writeFileSync(
+  path.join(__dirname, 'results-js.json'),
+  JSON.stringify(results, null, 2)
+)
 
 const padL = (s, n) => String(s).padStart(n)
 const pad = (s, n) => String(s).padEnd(n)
 console.error('protobuf.js vs JSON (node, host CPU)\n')
-console.error('profile     pbB  jsonB   pbEnc ns   pbDec ns   jsEnc ns   jsDec ns   pb/json size')
+console.error(
+  'profile     pbB  jsonB   pbEnc ns   pbDec ns   jsEnc ns   jsDec ns   pb/json size'
+)
 for (const r of results) {
   console.error(
     `${pad(r.profile, 10)} ${padL(r.pbBytes, 4)} ${padL(r.jsonBytes, 6)} ${padL(r.protobufjs.encode.nsop.toFixed(0), 10)} ${padL(r.protobufjs.decode.nsop.toFixed(0), 10)} ${padL(r.json.encode.nsop.toFixed(0), 10)} ${padL(r.json.decode.nsop.toFixed(0), 10)}   ${(r.pbBytes / r.jsonBytes).toFixed(2)}x`

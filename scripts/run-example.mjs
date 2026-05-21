@@ -114,7 +114,9 @@ if (platform === 'ios') {
     cwd: iosDir,
   })
   if (bundled.status !== 0) {
-    console.warn('bundle exec pod install failed; falling back to `pod install`')
+    console.warn(
+      'bundle exec pod install failed; falling back to `pod install`'
+    )
     run('pod', ['install'], { cwd: iosDir })
   }
 
