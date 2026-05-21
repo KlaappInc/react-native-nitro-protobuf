@@ -63,11 +63,15 @@ Legend: **✅ done** · **◑ partial** · **🔜 next** · **🧭 planned** · 
   types are hidden from `listMessages()`. Verified by round-trip (scalar +
   message values) and ~40k adversarial decodes + bit-flips under ASan/UBSan.
   (Map values that are WKTs are not auto-converted yet — minor follow-up.)
-- 🧭 **`google.protobuf.Struct` / `Value` / `ListValue` / `Any`.** `oneof` + `map`
-  now work; the remaining blocker is **recursion** (`Value` references `Struct`
-  and `ListValue`, which reference `Value`) — nanopb static messages can't be
-  self-recursive. Needs a callback/dynamic strategy. `Any` also needs a type-URL
-  registry.
+- 🔜 **`google.protobuf.Struct` / `Value` / `ListValue` / `Any`.** `oneof` + `map`
+  now work; the remaining blocker is **recursion**. Confirmed empirically: when
+  these are imported, nanopb breaks the cycle by converting the recursive `Value`
+  field to **`FT_CALLBACK`** (which the static codec rejects). Shipping them needs
+  a dedicated recursive encode/decode for `Struct`/`Value`/`ListValue` wired
+  through nanopb callbacks (or a hand-written wire codec), with a **decode depth
+  limit** to stay DoS-safe, plus heavy ASan/UBSan fuzzing — a focused multi-day
+  task, not a quick add. `Any` also needs a type-URL → message registry (the
+  registry already maps names → descriptors, so the lookup is mostly there).
 - ◑ **proto2 syntax** (1.2.0). `optional` (explicit presence via nanopb `has_`),
   `required`, `repeated` and field defaults round-trip; unset optionals are
   omitted on decode. **Extensions and groups are not supported** (extensions are
@@ -117,12 +121,11 @@ Legend: **✅ done** · **◑ partial** · **🔜 next** · **🧭 planned** · 
 - ✅ **`byteLength(message)`** — encoded length without allocating — done (1.2.0).
 - 🧪 **`encodeInto(message, buffer)`** — encode into a caller-provided buffer to
   avoid an allocation. Depends on the JSI `ArrayBuffer` work above.
-- 🧭 **Canonical proto3 JSON.** `toJson` / `fromJson` following the proto3 JSON
-  mapping (camelCase, base64 bytes, WKT special-casing), distinct from the JS
-  shape used by `encode`/`decode`. Deferred deliberately: to be useful for
-  interop it must match the spec exactly (camelCase, RFC3339 timestamps,
-  `Duration` "3.5s" form, enum names, 64-bit strings), so a partial version
-  would be worse than none.
+- ✅ **Canonical proto3 JSON** (1.2.0). Generated `toJson` / `fromJson` (generic
+  + per-message) following the proto3 JSON mapping: camelCase keys (both accepted
+  on input), enum value names, 64-bit as strings, base64 bytes, Timestamp as
+  RFC3339, Duration as `"Ns"`, nested messages, repeated + maps. (Struct/Value/
+  Any pass through, since they aren't supported — see Coverage.)
 - ✅ **Reflection / descriptors at runtime.** Generated `Message.fields`
   metadata — done (1.2.0).
 

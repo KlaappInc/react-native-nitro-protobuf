@@ -52,7 +52,11 @@ cd ios && pod install
 > **Expo:** add the config plugin to `app.json` and run `npx expo prebuild`.
 >
 > ```json
-> { "plugins": [["@klaappinc/react-native-nitro-protobuf", { "protoDir": "proto" }]] }
+> {
+>   "plugins": [
+>     ["@klaappinc/react-native-nitro-protobuf", { "protoDir": "proto" }]
+>   ]
+> }
 > ```
 
 ## Quickstart
@@ -136,11 +140,11 @@ the examples below assume `./generated/nitro-protobuf`.
 nanopb stores fields in fixed-size C structs, so every `string`, `bytes`, and
 `repeated` field needs a maximum. These defaults are applied automatically:
 
-| Option | Applies to | Default |
-|--------|------------|---------|
-| `max_length` | `string` | 256 |
-| `max_size` | `bytes` | 256 |
-| `max_count` | `repeated` | 16 |
+| Option       | Applies to | Default |
+| ------------ | ---------- | ------- |
+| `max_length` | `string`   | 256     |
+| `max_size`   | `bytes`    | 256     |
+| `max_count`  | `repeated` | 16      |
 
 Override a specific field with a standard nanopb `<name>.options` file next to
 your `.proto` (specific entries win over the defaults):
@@ -195,18 +199,18 @@ const names = NitroProtobuf.listMessages()
 
 ### Value mapping (JS ⇄ proto)
 
-| proto type | JS input | JS output |
-|------------|----------|-----------|
-| `bool` | `boolean` | `boolean` |
-| `int32` / `uint32` / `sint*32` / `fixed32` / `enum` | `number` (or numeric string) | `number` |
-| `int64` / `uint64` / `fixed64` / `sint64` | numeric **string** | numeric **string** |
-| `float` / `double` | `number` (or numeric string) | `number` |
-| `string` | `string` | `string` |
-| `bytes` | base64 `string` **or** `number[]` | base64 `string` |
-| message | object | object |
-| repeated | array | array |
-| `google.protobuf.Timestamp` | `Date` **or** ISO `string` | ISO `string` |
-| `google.protobuf.Duration` | `number` (milliseconds) | `number` (milliseconds) |
+| proto type                                          | JS input                          | JS output               |
+| --------------------------------------------------- | --------------------------------- | ----------------------- |
+| `bool`                                              | `boolean`                         | `boolean`               |
+| `int32` / `uint32` / `sint*32` / `fixed32` / `enum` | `number` (or numeric string)      | `number`                |
+| `int64` / `uint64` / `fixed64` / `sint64`           | numeric **string**                | numeric **string**      |
+| `float` / `double`                                  | `number` (or numeric string)      | `number`                |
+| `string`                                            | `string`                          | `string`                |
+| `bytes`                                             | base64 `string` **or** `number[]` | base64 `string`         |
+| message                                             | object                            | object                  |
+| repeated                                            | array                             | array                   |
+| `google.protobuf.Timestamp`                         | `Date` **or** ISO `string`        | ISO `string`            |
+| `google.protobuf.Duration`                          | `number` (milliseconds)           | `number` (milliseconds) |
 
 - 64-bit integers map to **decimal strings** to avoid JS precision loss.
 - `bytes` does **not** accept a `Uint8Array` (rejected at the JSI boundary) - pass
@@ -258,6 +262,11 @@ byteLength('acme.User', user) // generic
 
 // Lightweight reflection: field metadata.
 AcmeUser.fields // [{ name: 'id', tag: 1, type: 'uint32', repeated: false }, …]
+
+// Canonical proto3 JSON (camelCase keys, RFC3339 timestamps, "1.5s" durations,
+// enum names, base64 bytes, 64-bit as strings) - distinct from the binary shape.
+const j = AcmeUser.toJson(user) // or toJson('acme.User', user)
+const u = AcmeUser.fromJson(j) // or fromJson('acme.User', j)
 ```
 
 Encode/decode errors are thrown as typed `ProtobufError`s, so you can branch on
@@ -287,20 +296,24 @@ edits):
 ```js
 // metro.config.js
 const { getDefaultConfig } = require('@react-native/metro-config')
-const { withNitroProtobuf } = require('@klaappinc/react-native-nitro-protobuf/metro')
+const {
+  withNitroProtobuf,
+} = require('@klaappinc/react-native-nitro-protobuf/metro')
 
-module.exports = withNitroProtobuf(getDefaultConfig(__dirname), { protoDir: 'proto' })
+module.exports = withNitroProtobuf(getDefaultConfig(__dirname), {
+  protoDir: 'proto',
+})
 ```
 
 ## Performance
 
 On-device (Hermes, Release), `acme.User` (~70 B payload), throughput in ops/sec:
 
-| | encode | decode | wire size |
-|--|-------:|-------:|----------:|
-| **react-native-nitro-protobuf** | 0.18 M | 0.26 M | **70 B** |
-| protobuf.js | 0.07 M | 0.12 M | 70 B |
-| JSON | 0.44 M | 0.57 M | 210 B |
+|                                 | encode | decode | wire size |
+| ------------------------------- | -----: | -----: | --------: |
+| **react-native-nitro-protobuf** | 0.18 M | 0.26 M |  **70 B** |
+| protobuf.js                     | 0.07 M | 0.12 M |      70 B |
+| JSON                            | 0.44 M | 0.57 M |     210 B |
 
 vs **protobuf.js**: ~2-7× faster encode, ~2× faster decode (medium/large
 payloads). vs **JSON**: Hermes' native JSON is faster on raw CPU, but protobuf is
@@ -319,16 +332,16 @@ and undefined behaviour** - the most common cause of hard crashes. To
 
 Verified configurations (others likely work but are untested):
 
-| | Supported / tested |
-|---|---|
-| React Native | 0.81 (Expo SDK 54) and 0.85 |
-| Architecture | **New Architecture only** (TurboModules/Fabric); Old Arch unsupported |
-| JS engine | Hermes |
-| `react-native-nitro-modules` | 0.35.x (peer dependency) |
-| Expo | SDK 54 (config plugin + dev/prebuild) |
-| Platforms | iOS 13+, Android (`minSdk` per RN) |
-| protobuf syntax | proto3 + proto2 (no extensions/groups) |
-| Node (codegen) | 18+ (plus `python3` once, for the nanopb generator) |
+|                              | Supported / tested                                                    |
+| ---------------------------- | --------------------------------------------------------------------- |
+| React Native                 | 0.81 (Expo SDK 54) and 0.85                                           |
+| Architecture                 | **New Architecture only** (TurboModules/Fabric); Old Arch unsupported |
+| JS engine                    | Hermes                                                                |
+| `react-native-nitro-modules` | 0.35.x (peer dependency)                                              |
+| Expo                         | SDK 54 (config plugin + dev/prebuild)                                 |
+| Platforms                    | iOS 13+, Android (`minSdk` per RN)                                    |
+| protobuf syntax              | proto3 + proto2 (no extensions/groups)                                |
+| Node (codegen)               | 18+ (plus `python3` once, for the nanopb generator)                   |
 
 ## Semantic versioning & deprecation
 
@@ -344,23 +357,24 @@ Deprecations are announced in the changelog and kept for at least one minor
 release before removal in the next major. The protobuf **wire format is stable**
 (it is standard protobuf); upgrades never change bytes on the wire for a given
 `.proto`. Releases use [Conventional Commits](https://www.conventionalcommits.org)
-+ release-please (see [Releasing](#releasing)).
+
+- release-please (see [Releasing](#releasing)).
 
 ## Errors & validation
 
 `encode`/`decode` **throw** on invalid input - they never silently truncate or
 corrupt data. Encode validates against the schema and the field size limits:
 
-| Condition | Behavior |
-|-----------|----------|
-| Unknown field name | throws `Unknown field "<name>" ...` |
-| Wrong JS type for a field | throws (e.g. expects number/string/array) |
-| `string` over `max_length` | throws `... exceeds max_length ...` |
-| `bytes` over `max_size` | throws `... exceeds max_size ...` |
-| `repeated` over `max_count` | throws `... exceeds max_count ...` |
-| non-numeric 64-bit string | throws (must be a full decimal integer) |
-| `Uint8Array` for `bytes` | throws (use base64 or `number[]`) |
-| unknown fields on **decode** | skipped (standard proto3 forward-compat) |
+| Condition                    | Behavior                                  |
+| ---------------------------- | ----------------------------------------- |
+| Unknown field name           | throws `Unknown field "<name>" ...`       |
+| Wrong JS type for a field    | throws (e.g. expects number/string/array) |
+| `string` over `max_length`   | throws `... exceeds max_length ...`       |
+| `bytes` over `max_size`      | throws `... exceeds max_size ...`         |
+| `repeated` over `max_count`  | throws `... exceeds max_count ...`        |
+| non-numeric 64-bit string    | throws (must be a full decimal integer)   |
+| `Uint8Array` for `bytes`     | throws (use base64 or `number[]`)         |
+| unknown fields on **decode** | skipped (standard proto3 forward-compat)  |
 
 Tune the limits per field in `.options` (see [Field size limits](#field-size-limits)).
 
