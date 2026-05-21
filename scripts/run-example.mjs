@@ -107,7 +107,16 @@ killMetroPorts()
 
 if (platform === 'ios') {
   const iosDir = path.join(exampleDir, 'ios')
-  run('bundle', ['exec', 'pod', 'install'], { cwd: iosDir })
+  // Prefer Bundler's pinned CocoaPods, but fall back to a global `pod` when
+  // Bundler is unavailable/incompatible (e.g. the vendored bundler vs Ruby 4).
+  const bundled = spawnSync('bundle', ['exec', 'pod', 'install'], {
+    stdio: 'inherit',
+    cwd: iosDir,
+  })
+  if (bundled.status !== 0) {
+    console.warn('bundle exec pod install failed; falling back to `pod install`')
+    run('pod', ['install'], { cwd: iosDir })
+  }
 
   let simulator = null
   try {
