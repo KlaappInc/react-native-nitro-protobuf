@@ -98,10 +98,17 @@ const rn = path.join(
   'ReactCommon',
   'jsi'
 )
-const pbSources = fs
-  .readdirSync(outDir)
-  .filter((n) => n.endsWith('.pb.c'))
-  .map((n) => path.join(outDir, n))
+// Recursive: well-known-type sources land under generated/google/protobuf/.
+function collectPbSources(dir) {
+  const out = []
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const f = path.join(dir, e.name)
+    if (e.isDirectory()) out.push(...collectPbSources(f))
+    else if (e.name.endsWith('.pb.c')) out.push(f)
+  }
+  return out
+}
+const pbSources = collectPbSources(outDir)
 
 const sources = [
   benchSrc,
