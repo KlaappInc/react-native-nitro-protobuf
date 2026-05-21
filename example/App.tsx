@@ -14,7 +14,7 @@ import {
   NitroProtobuf,
   ProtobufError,
 } from '@klaappinc/react-native-nitro-protobuf';
-// Generated typed API + well-known types (1.1.0/1.2.0 features under test).
+// Generated typed API + well-known types (1.1.0 features under test).
 import {
   AcmeUser,
   AcmeSession,
@@ -76,7 +76,7 @@ function runFeatureChecks(): FeatureCheck[] {
         sd.checkpoints?.[0] === '2026-01-01T00:00:00.000Z',
     );
 
-    // 1.2.0: byteLength matches encoded size, field reflection, typed errors.
+    // byteLength matches encoded size, field reflection, typed errors.
     push(
       'byteLength == encoded size',
       AcmeUser.byteLength(u) === ub.byteLength,
@@ -375,12 +375,12 @@ function App() {
           <Animated.View style={[fadeUp(headerAnim)]}>
             <View style={styles.card}>
               <Text style={styles.cardTitle}>
-                1.2.0 features:{' '}
+                1.1.0 features:{' '}
                 {features.length === 0
                   ? '…'
                   : featuresPass
-                  ? 'FEATURES_PASS'
-                  : 'FEATURES_FAIL'}
+                    ? 'FEATURES_PASS'
+                    : 'FEATURES_FAIL'}
               </Text>
               {features.map(f => (
                 <Text key={f.label} style={styles.meta}>
