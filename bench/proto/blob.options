@@ -1,0 +1,9 @@
+# Generous limits so the size-sweep payloads fit the static nanopb structs.
+# text/data are the last fields so their sizes don't push later offsets past
+# nanopb's 16-bit field-offset limit; the message stays under nanopb's 64KB cap.
+acme.Blob.text  max_length: 32000
+acme.Blob.data  max_size:   22000
+acme.Blob.tags  max_length: 32
+acme.Blob.tags  max_count:  8
+acme.Blob.items max_count:  8
+acme.Item.k     max_length: 16

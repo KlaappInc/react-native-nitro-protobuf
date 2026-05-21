@@ -89,3 +89,37 @@ export const PROFILE_ORDER = [
   'default',
   'large',
 ]
+
+// ----------------------------------------------------------------------------
+// Size sweep: representative ~1KB / ~10KB / ~100KB messages (acme.Blob, see
+// bench/proto/blob.proto). Deterministic so the C++ microbench mirrors them
+// exactly. Each scale s in {1,10,50} -> text 600*s chars, data 400*s bytes,
+// plus a fixed structural tail (4 tags, 4 nested items); ~1KB/10KB/50KB. The
+// top size is 50KB, not 100KB: nanopb's default build caps a single message at
+// 64KB (PB_FIELD_32BIT off), which is what the library ships. Reports use the
+// actual encoded byte size, not the nominal label.
+const BLOB_SCALES = { blob1k: 1, blob10k: 10, blob50k: 50 }
+
+export function buildBlob(scale) {
+  return {
+    text: 'x'.repeat(600 * scale),
+    data: Array.from({ length: 400 * scale }, (_, i) => i % 256),
+    tags: ['a'.repeat(20), 'b'.repeat(20), 'c'.repeat(20), 'd'.repeat(20)],
+    items: [
+      { k: 'k0', v: 0 },
+      { k: 'k1', v: 1 },
+      { k: 'k2', v: 2 },
+      { k: 'k3', v: 3 },
+    ],
+  }
+}
+
+export const BLOB_PROFILES = Object.fromEntries(
+  Object.entries(BLOB_SCALES).map(([name, s]) => [name, buildBlob(s)])
+)
+
+export const BLOB_ORDER = ['blob1k', 'blob10k', 'blob50k']
+
+// Byte sizes used by the base64-conversion micro-bench (the hidden cost a user
+// pays converting a Uint8Array to/from the number[] / base64 the codec uses).
+export const BASE64_SIZES = [256, 1024, 10240, 102400]
