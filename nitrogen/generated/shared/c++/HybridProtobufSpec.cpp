@@ -16,6 +16,7 @@ namespace margelo::nitro::nitroprotobuf {
     registerHybrids(this, [](Prototype& prototype) {
       prototype.registerHybridMethod("encode", &HybridProtobufSpec::encode);
       prototype.registerHybridMethod("decode", &HybridProtobufSpec::decode);
+      prototype.registerHybridMethod("byteLength", &HybridProtobufSpec::byteLength);
       prototype.registerHybridMethod("listMessages", &HybridProtobufSpec::listMessages);
     });
   }

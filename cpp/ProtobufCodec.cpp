@@ -668,6 +668,23 @@ std::shared_ptr<ArrayBuffer> encodeMessage(const MessageInfo& info, const std::s
   return encodeFromObject(info, message->getMap());
 }
 
+size_t encodedByteLength(const MessageInfo& info, const std::shared_ptr<AnyMap>& message) {
+  if (message == nullptr) {
+    throw std::runtime_error("Message object is null");
+  }
+  std::vector<uint8_t> storage(info.struct_size);
+  if (info.init_default != nullptr) {
+    info.init_default(storage.data());
+  }
+  populateMessage(info, storage.data(), message->getMap());
+
+  size_t encodedSize = 0;
+  if (!pb_get_encoded_size(&encodedSize, info.descriptor, storage.data())) {
+    throw std::runtime_error("Failed to compute encoded size");
+  }
+  return encodedSize;
+}
+
 std::shared_ptr<AnyMap> decodeMessage(const MessageInfo& info, const std::shared_ptr<ArrayBuffer>& data) {
   if (data == nullptr) {
     throw std::runtime_error("Data buffer is null");

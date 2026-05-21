@@ -684,6 +684,13 @@ function generateTypes(messages, opts = {}) {
     '    throw classifyProtobufError(e, name)',
     '  }',
     '}',
+    'function _len(name: string, m: any): number {',
+    '  try {',
+    '    return NitroProtobuf.byteLength(name, _encodeShape(name, m) as never)',
+    '  } catch (e) {',
+    '    throw classifyProtobufError(e, name)',
+    '  }',
+    '}',
     ''
   )
 
@@ -701,6 +708,14 @@ function generateTypes(messages, opts = {}) {
     '): NitroProtobufMessages[K] {',
     '  return _dec(name, data) as NitroProtobufMessages[K]',
     '}',
+    '',
+    '/** Encoded byte length of a message without allocating the output buffer. */',
+    'export function byteLength<K extends NitroProtobufMessageName>(',
+    '  name: K,',
+    '  message: NitroProtobufMessages[K]',
+    '): number {',
+    '  return _len(name, message)',
+    '}',
     ''
   )
 
@@ -709,11 +724,19 @@ function generateTypes(messages, opts = {}) {
   for (const m of messages) {
     const T = tsTypeName(m.fullName)
     const full = cleanName(m.fullName)
+    // Field metadata for runtime reflection (name, tag, proto type, repeated).
+    const fieldsMeta = m.fieldsArray.map((f) => {
+      let type = f.type
+      if (f.resolvedType) type = cleanName(f.resolvedType.fullName)
+      return `{ name: '${f.name}', tag: ${f.id}, type: '${type}', repeated: ${!!f.repeated} }`
+    })
     out.push(
       `export const ${T} = {`,
       `  messageName: '${full}' as const,`,
       `  encode: (m: ${T}): ArrayBuffer => _enc('${full}', m),`,
       `  decode: (b: ArrayBuffer): ${T} => _dec('${full}', b) as ${T},`,
+      `  byteLength: (m: ${T}): number => _len('${full}', m),`,
+      `  fields: [${fieldsMeta.join(', ')}] as const,`,
       '}',
       ''
     )

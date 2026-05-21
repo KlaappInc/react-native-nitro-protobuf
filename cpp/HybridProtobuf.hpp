@@ -10,6 +10,7 @@ public:
 
   std::shared_ptr<ArrayBuffer> encode(const std::string& messageName, const std::shared_ptr<AnyMap>& message) override;
   std::shared_ptr<AnyMap> decode(const std::string& messageName, const std::shared_ptr<ArrayBuffer>& data) override;
+  double byteLength(const std::string& messageName, const std::shared_ptr<AnyMap>& message) override;
   std::vector<std::string> listMessages() override;
 };
 
