@@ -32,6 +32,11 @@ All scripts are reproducible - see [Reproducing](#reproducing).
   natively and **~40 % faster on device**, with ~30 % fewer allocations. A
   JSON-string-boundary experiment to skip `AnyMap` was measured and **rejected**
   (no consistent win).
+- **Size sweep (1-50 KB) + the `bytes` boundary tax.** Encode/decode scale ~linearly
+  with size. The biggest *hidden* cost is converting a `Uint8Array` to the
+  `number[]` the codec uses for `bytes` (~5 ms at 100 KB) - use the **base64**
+  form instead (~10-50× cheaper). A single message is capped at **64 KB** by
+  nanopb's default build. See [Size sweep & boundary cost](#size-sweep--boundary-cost-honest-larger-payloads).
 
 ## Optimizations applied
 
@@ -109,6 +114,10 @@ be per-message typed-struct codegen (a protobuf.js-style generated C++ codec).
 - **8 payload profiles** (`bench/payloads.mjs`), shared across every bench:
   `tiny` (id only), `scalars`, `string`, `bytes`, `repeated`, `nested`,
   `default` (the example, ~70 B), `large` (every field at its max).
+- **Size sweep**: 3 larger `acme.Blob` profiles (`bench/proto/blob.proto`) at
+  ~1/10/50 KB, plus a **base64 / `number[]` conversion micro-bench** over
+  256 B-100 KB buffers (the `bytes` boundary cost). The base64 bench is
+  time-budgeted (~60 ms/measure) since per-op cost spans 4 µs-5 ms.
 - 64-bit fields are decimal **strings** (how the lib maps int64/uint64;
   protobuf.js gets `Long`s). bytes is a `number[]` (→ `Uint8Array` for
   protobuf.js).
@@ -160,6 +169,65 @@ On V8, protobuf.js (JIT-compiled, plain-object codec) **outruns the native C++
 codec** for this workload - confirming the codec is bottlenecked on AnyMap
 marshalling, not protobuf encoding. JSON is fastest for most encodes; protobuf
 is ~**3× smaller** on the wire.
+
+## Size sweep & boundary cost (honest, larger payloads)
+
+The 8 profiles above are small (≤267 B), where fixed per-call costs dominate.
+This section adds **representative larger messages** (`acme.Blob`,
+`bench/proto/blob.proto`: a long string, a byte array, repeated strings and
+repeated nested messages) at ~1 KB / 10 KB / 50 KB, plus the **conversion cost a
+real app pays at the JS boundary** for `bytes`.
+
+> **Why 50 KB, not 100 KB?** As shipped, nanopb caps a single message at **64 KB**
+> (`PB_FIELD_32BIT` off). A 100 KB message will not compile without that flag, so
+> we benchmark within the limit the library actually enforces (see ROADMAP).
+
+These were measured back-to-back; the **absolute ns run higher** than §1-§2
+(warmer machine), so read this for **scaling behaviour and ratios**, not against
+the small-payload tables. Large payloads run proportionally fewer iterations.
+
+**Native C++ codec (`-O2`, M1 Pro):**
+
+| profile | bytes | encode ns/op | decode ns/op | allocs e/d |
+|---------|------:|------:|------:|:--:|
+| blob1k  |  1 124 |   9 685 |  10 025 | 32/32 |
+| blob10k | 10 124 |  18 901 |  25 141 | 32/32 |
+| blob50k | 50 126 |  71 991 | 104 495 | 32/32 |
+
+Encode/decode scale roughly linearly with size (≈1.4 ns/byte encode, ≈2 ns/byte
+decode at 50 KB), and allocation count is now flat - the per-field cost amortizes
+into the bulk string/array copy.
+
+**protobuf.js vs JSON (node / V8):**
+
+| profile | pbB | jsonB | pb enc | pb dec | json enc | json dec | pb/json |
+|---------|----:|------:|------:|------:|------:|------:|:--:|
+| blob1k  |  1 126 |   2 179 |  1 584 | 1 549 |   5 966 |   8 895 | 0.52× |
+| blob10k | 10 126 |  20 439 |  7 038 | 2 392 |  52 528 |  71 197 | 0.50× |
+| blob50k | 50 128 | 101 577 | 28 494 | 3 673 | 222 997 | 381 548 | 0.49× |
+
+At these sizes protobuf is **~2× smaller** than JSON and protobuf.js **decode
+pulls clearly ahead** of JSON (3.7 µs vs 382 µs at 50 KB - JSON re-parses the
+whole text, protobuf.js skips fields it can). Encode favours protobuf too.
+
+**Boundary conversion cost (the `bytes` tax).** The codec returns `bytes` as a
+base64 `string` or a `number[]` - **not** a `Uint8Array`. An app holding binary
+data therefore converts at the edge. ns/op on node (Buffer-based base64; React
+Native needs a base64 polyfill, so its base64 paths cost more):
+
+| bytes | `Uint8Array`→base64 | base64→`Uint8Array` | `Uint8Array`→`number[]` | `number[]`→`Uint8Array` |
+|------:|------:|------:|------:|------:|
+|    256 |     604 |     352 |    10 757 |     891 |
+|  1 024 |   1 198 |     807 |   104 923 |   2 181 |
+| 10 240 |  11 062 |  11 286 |   313 151 |  20 130 |
+|102 400 | 253 734 |  99 286 | 5 499 357 | 136 081 |
+
+The headline: **`Uint8Array`→`number[]` is by far the most expensive path**
+(~5.5 ms for 100 KB - it allocates a JS array of boxed numbers), an order of
+magnitude slower than base64 and capable of dwarfing the encode/decode itself.
+**For binary-heavy messages, use the base64 string form, not `number[]`.** This
+boundary cost is exactly why first-class `Uint8Array`/`ArrayBuffer` support for
+`bytes` is the top DX item on the [ROADMAP](./ROADMAP.md).
 
 ## 3 · On-device (Hermes, Release) - NitroProtobuf vs protobuf.js vs JSON
 

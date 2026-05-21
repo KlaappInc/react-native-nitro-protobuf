@@ -47,7 +47,27 @@ static volatile uint64_t g_sink = 0;
 static std::string rep(size_t n, char c) { return std::string(n, c); }
 static AnyArray bytesRange(int n) { AnyArray a; for (int i = 0; i < n; i++) a.emplace_back(AnyValue((double)i)); return a; }
 
+// Mirrors payloads.mjs buildBlob(scale): text 600*scale chars, data 400*scale
+// bytes (i%256), 4 fixed tags, 4 fixed nested items.
+static std::shared_ptr<AnyMap> buildBlob(int scale) {
+  auto m = AnyMap::make();
+  m->setString("text", rep(600 * scale, 'x'));
+  AnyArray data;
+  for (int i = 0; i < 400 * scale; i++) data.emplace_back(AnyValue((double)(i % 256)));
+  m->setArray("data", data);
+  m->setArray("tags", AnyArray{AnyValue(rep(20,'a')), AnyValue(rep(20,'b')), AnyValue(rep(20,'c')), AnyValue(rep(20,'d'))});
+  AnyArray items;
+  for (int i = 0; i < 4; i++) {
+    items.emplace_back(AnyValue(AnyObject{{"k", AnyValue(std::string("k") + std::to_string(i))}, {"v", AnyValue((double)i)}}));
+  }
+  m->setArray("items", items);
+  return m;
+}
+
 static std::shared_ptr<AnyMap> build(const std::string& profile) {
+  if (profile == "blob1k") return buildBlob(1);
+  if (profile == "blob10k") return buildBlob(10);
+  if (profile == "blob50k") return buildBlob(50);
   auto m = AnyMap::make();
   if (profile == "tiny") {
     m->setDouble("id", 7);
@@ -103,11 +123,9 @@ static std::shared_ptr<AnyMap> build(const std::string& profile) {
 struct Stat { double nsop, p50, p95, p99, minv, opsps; uint64_t allocs; };
 
 template <class Op>
-static Stat measure(Op op) {
-  const int WARMUP = 20000;
+static Stat measure(Op op, size_t BATCH = 200000, size_t SAMPLES = 50000) {
   const int TRIALS = 7;
-  const size_t BATCH = 200000; // mean ns/op per trial
-  const size_t SAMPLES = 50000; // individual timings for percentiles
+  const int WARMUP = (int)std::min<size_t>(20000, BATCH);
 
   for (int i = 0; i < WARMUP; i++) op();
 
@@ -145,18 +163,31 @@ static Stat measure(Op op) {
 int main() {
   const MessageInfo* user = getMessageInfo("acme.User");
   if (!user) { std::fprintf(stderr, "acme.User not registered\n"); return 2; }
+  const MessageInfo* blob = getMessageInfo("acme.Blob");
+  if (!blob) { std::fprintf(stderr, "acme.Blob not registered\n"); return 2; }
 
-  const char* profiles[] = {"tiny","scalars","string","bytes","repeated","nested","default","large"};
+  struct Profile { const char* name; const MessageInfo* info; };
+  const Profile profiles[] = {
+    {"tiny", user}, {"scalars", user}, {"string", user}, {"bytes", user},
+    {"repeated", user}, {"nested", user}, {"default", user}, {"large", user},
+    {"blob1k", blob}, {"blob10k", blob}, {"blob50k", blob},
+  };
 
   std::printf("[\n");
   bool first = true;
-  for (const char* name : profiles) {
+  for (const Profile& p : profiles) {
+    const char* name = p.name;
+    const MessageInfo& info = *p.info;
     auto m = build(name);
-    auto buf = encodeMessage(*user, m); // also gives byte size
+    auto buf = encodeMessage(info, m); // also gives byte size
     size_t bytes = buf->size();
 
-    Stat enc = measure([&] { auto b = encodeMessage(*user, m); g_sink ^= b->size(); });
-    Stat dec = measure([&] { auto d = decodeMessage(*user, buf); g_sink ^= reinterpret_cast<uintptr_t>(d.get()); });
+    // Large payloads run fewer iterations (bounded total bytes touched).
+    size_t batch = std::clamp<size_t>(200000000ull / std::max<size_t>(1, bytes), 2000, 200000);
+    size_t samples = std::clamp<size_t>(50000000ull / std::max<size_t>(1, bytes), 1000, 50000);
+
+    Stat enc = measure([&] { auto b = encodeMessage(info, m); g_sink ^= b->size(); }, batch, samples);
+    Stat dec = measure([&] { auto d = decodeMessage(info, buf); g_sink ^= reinterpret_cast<uintptr_t>(d.get()); }, batch, samples);
 
     if (!first) std::printf(",\n");
     first = false;

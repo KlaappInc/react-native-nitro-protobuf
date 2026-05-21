@@ -41,11 +41,26 @@ if (!compiler) throw new Error('no C++ compiler found')
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nitro-bench-'))
 const outDir = path.join(tmp, 'generated')
 
+// Assemble a proto dir: the example protos (acme.User et al.) plus the larger
+// acme.Blob used by the size sweep (bench/proto/blob.{proto,options}).
+const protoDir = path.join(tmp, 'proto')
+fs.mkdirSync(protoDir, { recursive: true })
+for (const dir of [
+  path.join(repoRoot, 'example', 'proto'),
+  path.join(__dirname, 'proto'),
+]) {
+  for (const f of fs.readdirSync(dir)) {
+    if (f.endsWith('.proto') || f.endsWith('.options')) {
+      fs.copyFileSync(path.join(dir, f), path.join(protoDir, f))
+    }
+  }
+}
+
 // Generate acme protos fresh (self-contained, independent of repo generated/).
 const gen = run(process.execPath, [
   generatorPath,
   '--protoDir',
-  path.join(repoRoot, 'example', 'proto'),
+  protoDir,
   '--outDir',
   outDir,
   '--protoc',
