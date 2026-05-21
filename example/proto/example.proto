@@ -32,3 +32,15 @@ message User {
   float ratio = 10;
   double weight = 11;
 }
+
+// Exercises oneof + map<K,V>.
+message Shape {
+  uint32 id = 1;
+  oneof kind {
+    string label = 2;
+    int32 count = 3;
+    Address spot = 4;
+  }
+  map<string, int32> tally = 5;
+  map<string, Address> places = 6;
+}

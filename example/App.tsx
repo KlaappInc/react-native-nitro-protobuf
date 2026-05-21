@@ -18,6 +18,7 @@ import {
 import {
   AcmeUser,
   AcmeSession,
+  AcmeShape,
 } from '@klaappinc/react-native-nitro-protobuf/generated/nitro-protobuf';
 import { runBench, formatResults } from './src/bench';
 
@@ -92,6 +93,22 @@ function runFeatureChecks(): FeatureCheck[] {
       typed = err instanceof ProtobufError && err.kind === 'unknown-field';
     }
     push('typed ProtobufError (unknown-field)', typed);
+
+    // oneof: only the set member is surfaced on decode.
+    const shp = AcmeShape.decode(AcmeShape.encode({ id: 1, label: 'hi' }));
+    push(
+      'oneof: set member only',
+      shp.label === 'hi' && shp.count === undefined && shp.spot === undefined,
+    );
+    // map<string,int32> and map<string,Address>.
+    const mp = AcmeShape.decode(
+      AcmeShape.encode({
+        tally: { a: 1, b: 2 },
+        places: { home: { street: 'Main St', zip: 1 } },
+      }),
+    );
+    push('map<string,int32>', mp.tally?.a === 1 && mp.tally?.b === 2);
+    push('map<string,Message>', mp.places?.home?.street === 'Main St');
   } catch (e) {
     push('exception: ' + (e instanceof Error ? e.message : String(e)), false);
   }

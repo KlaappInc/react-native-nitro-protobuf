@@ -17,7 +17,7 @@ static const FieldInfo k_nitro_protobuf_UserProfile_fields[] = {
 };
 
 static const MessageInfo kMessages[] = {
-  {"nitro.protobuf.UserProfile", &nitro_protobuf_UserProfile_msg, sizeof(nitro_protobuf_UserProfile), k_nitro_protobuf_UserProfile_fields, sizeof(k_nitro_protobuf_UserProfile_fields) / sizeof(k_nitro_protobuf_UserProfile_fields[0]), init_default_nitro_protobuf_UserProfile},
+  {"nitro.protobuf.UserProfile", &nitro_protobuf_UserProfile_msg, sizeof(nitro_protobuf_UserProfile), k_nitro_protobuf_UserProfile_fields, sizeof(k_nitro_protobuf_UserProfile_fields) / sizeof(k_nitro_protobuf_UserProfile_fields[0]), init_default_nitro_protobuf_UserProfile, false},
 };
 
 const MessageInfo* getMessageInfo(const std::string& name) {
@@ -42,6 +42,7 @@ std::vector<std::string> getMessageNames() {
   std::vector<std::string> names;
   names.reserve(sizeof(kMessages) / sizeof(kMessages[0]));
   for (const auto& message : kMessages) {
+    if (message.is_map_entry) continue; // hide synthetic map entries
     names.emplace_back(message.name);
   }
   return names;
