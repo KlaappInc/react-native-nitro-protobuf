@@ -80,6 +80,8 @@ lib/
 # Nitro Protobuf generated files
 generated/*.pb.h
 generated/*.pb.c
+generated/nitro-protobuf.ts
+generated/.nanopb-options/
 
 # caches
 .eslintcache
