@@ -11,7 +11,7 @@ class NitroProtobufPackage : BaseReactPackage() {
     // Eagerly load the native library so the C++ `Protobuf` HybridObject is
     // registered (via JNI_OnLoad -> registerAllNatives) before JS runs
     // `NitroModules.createHybridObject('Protobuf')` at import time. Relying on
-    // NitroProtobufModule's lazy static init is too late — the TurboModule is
+    // NitroProtobufModule's lazy static init is too late - the TurboModule is
     // only touched after the HybridObject is already created.
     NitroProtobufOnLoad.initializeNative()
   }
