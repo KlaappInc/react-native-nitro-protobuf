@@ -28,6 +28,10 @@ brew install protobuf nanopb
 
 2) Put your `.proto` files in your app (example uses `./proto`).
 3) Add `.options` files to define `max_length`, `max_size`, and `max_count`.
+   **Required:** every `string` (`max_length`), `bytes` (`max_size`), and
+   `repeated` field (`max_count`) must have an option, otherwise Nanopb emits a
+   *callback* field that this library cannot encode/decode. The generator now
+   **fails with an explicit error** listing any field that is missing one.
 4) Generate C sources + registry:
 
 ```
@@ -56,14 +60,40 @@ const decoded = NitroProtobuf.decode('nitro.protobuf.UserProfile', encoded)
 const names = NitroProtobuf.listMessages()
 ```
 
+## Threading
+
+`encode`/`decode` are **synchronous JSI calls and must run on the JS thread**
+(the runtime that created the `Protobuf` Hybrid Object). Calling them from a
+Reanimated worklet, a separate JS runtime, or any non-JS thread is **not
+supported and is undefined behaviour** (the most common cause of hard crashes).
+If you need to (de)serialize off the main JS thread, marshal the result back to
+the JS thread first.
+
+## Value mapping (JS ⇄ proto)
+
+| proto type | JS input | JS output |
+|------------|----------|-----------|
+| `bool` | `boolean` | `boolean` |
+| `int32`/`uint32`/`sint*32`/`fixed32`/`enum` | `number` (or numeric string) | `number` |
+| `int64`/`uint64`/`fixed64`/`sint64` | numeric **string** | numeric **string** (avoids precision loss) |
+| `float`/`double` | `number` (or numeric string) | `number` |
+| `string` | `string` | `string` |
+| `bytes` | base64 `string` **or** `number[]` | base64 `string` |
+| message | plain object | plain object |
+| repeated | array | array |
+
+- Numeric strings must be fully numeric — `"12abc"` / `"1.2.3"` are rejected.
+- **`bytes` does NOT accept a `Uint8Array`** — it is rejected at the JSI
+  boundary. Pass a base64 string or a `number[]`. (This differs from
+  `protobufjs`, which uses `Uint8Array`.)
+
 ## Notes and limitations
 
 - Only Nanopb **static** fields are supported. Use `.options` to set:
   - `max_length` for strings
   - `max_size` for bytes
   - `max_count` for repeated fields
-- `oneof` and `map` fields are not supported.
-- `bytes` fields use base64 strings (encode accepts base64 or `number[]`).
+- `oneof` and `map` fields are not supported (they throw at runtime).
 - 64-bit numbers are returned as strings to avoid precision loss.
 
 ## Example protos

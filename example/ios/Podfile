@@ -30,5 +30,32 @@ target 'NitroProtobufExample' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    # Workaround: Xcode 26 clang rejects fmt 11.0.x consteval format-string
+    # checks (pulled in transitively by Yoga/glog in RN 0.83). Force constexpr.
+    # The -D alone is ignored because fmt/base.h unconditionally #defines
+    # FMT_USE_CONSTEVAL, so we also wrap that autodetect block in an #ifndef.
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        defs = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
+        defs = [defs] unless defs.is_a?(Array)
+        defs << 'FMT_USE_CONSTEVAL=0' unless defs.include?('FMT_USE_CONSTEVAL=0')
+        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
+      end
+    end
+
+    fmt_base = File.join(installer.sandbox.root, 'fmt', 'include', 'fmt', 'base.h')
+    if File.exist?(fmt_base)
+      src = File.read(fmt_base)
+      anchor = "// Detect consteval, C++20 constexpr extensions and std::is_constant_evaluated.\n#if !defined(__cpp_lib_is_constant_evaluated)"
+      if src.include?(anchor) && !src.include?('FMT_USE_CONSTEVAL guard')
+        src = src.sub(anchor, anchor.sub("#if !defined", "#ifndef FMT_USE_CONSTEVAL  // guard\n#if !defined"))
+        src = src.sub("#  define FMT_USE_CONSTEVAL 0\n#endif\n#if FMT_USE_CONSTEVAL",
+                      "#  define FMT_USE_CONSTEVAL 0\n#endif\n#endif  // FMT_USE_CONSTEVAL guard\n#if FMT_USE_CONSTEVAL")
+        File.chmod(0644, fmt_base) rescue nil
+        File.write(fmt_base, src)
+        Pod::UI.puts "[nitro-protobuf] Patched fmt/base.h for Xcode 26 consteval".green
+      end
+    end
   end
 end
