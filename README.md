@@ -24,7 +24,11 @@ and produces payloads **~3× smaller than JSON**. See [PERFORMANCE.md](./PERFORM
   installed automatically on first run. No `brew`/`pip` setup.
 - 🪄 **No hand-written `.options`** - sensible field-size defaults are applied
   automatically; override per field or globally only when you want to.
-- 🔒 **Generated TypeScript types** - typed `encode`/`decode` per message.
+- 🔒 **Generated TypeScript types** - a typed `Message.encode/decode` object per
+  message plus a generic `encode`/`decode`, fully inferred.
+- 🕒 **Well-known types** - `Timestamp`, `Duration`, `Empty`, `FieldMask` and the
+  scalar wrappers, with natural JS mapping (`Timestamp` ⇄ `Date`, `Duration` ⇄ ms).
+- 👀 **Watch mode** - `generate --watch` regenerates on `.proto` changes.
 - 📱 **iOS & Android**, New Architecture.
 - 🧩 **Expo config plugin** - regenerates on `expo prebuild`.
 
@@ -75,15 +79,24 @@ message User {
 }
 ```
 
-Use the generated, fully-typed API:
+Use the generated, fully-typed per-message API - no magic strings:
 
 ```ts
-import { encode, decode, type AcmeUser } from './generated/nitro-protobuf'
+import { AcmeUser } from './generated/nitro-protobuf'
 
 const user: AcmeUser = { id: 1, name: 'Ada', scores: [10, 20], active: true }
 
-const bytes = encode('acme.User', user) // ArrayBuffer
-const back = decode('acme.User', bytes) // AcmeUser
+const bytes = AcmeUser.encode(user) // ArrayBuffer
+const back = AcmeUser.decode(bytes) // AcmeUser
+```
+
+A generic, name-keyed API is also generated (handy for dynamic dispatch):
+
+```ts
+import { encode, decode } from './generated/nitro-protobuf'
+
+const bytes = encode('acme.User', user) // name is checked against the schema
+const back = decode('acme.User', bytes) // typed as AcmeUser
 ```
 
 `proto:generate` needs **no system tools**: it uses a bundled `protoc`
@@ -150,7 +163,13 @@ Options:
   --protoc <path>       Use a specific protoc (default: bundled)
   --nanopb <path>       Use a specific protoc-gen-nanopb (default: auto-installed)
   --strict              Require explicit .options for every static field
+  --watch, -w           Regenerate on .proto changes (debounced)
 ```
+
+Run `npm run proto:watch` during development to regenerate types as you edit
+`.proto` files. Note: TypeScript changes hot-reload through Metro, but **native**
+schema changes (new messages/fields) still require a rebuild (`pod install` /
+Gradle) since the nanopb C structs are compiled into the app.
 
 ## Usage
 
@@ -177,11 +196,41 @@ const names = NitroProtobuf.listMessages()
 | `bytes` | base64 `string` **or** `number[]` | base64 `string` |
 | message | object | object |
 | repeated | array | array |
+| `google.protobuf.Timestamp` | `Date` **or** ISO `string` | ISO `string` |
+| `google.protobuf.Duration` | `number` (milliseconds) | `number` (milliseconds) |
 
 - 64-bit integers map to **decimal strings** to avoid JS precision loss.
 - `bytes` does **not** accept a `Uint8Array` (rejected at the JSI boundary) - pass
   a base64 string or a `number[]`. This differs from `protobufjs`.
 - Numeric strings must be fully numeric; `"12abc"` and `"1.2.3"` are rejected.
+
+### Well-known types
+
+`google.protobuf.Timestamp`, `Duration`, `Empty`, `FieldMask` and the scalar
+wrappers (`StringValue`, `Int32Value`, …) work out of the box - just import them:
+
+```proto
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+
+message Session {
+  google.protobuf.Timestamp created_at = 1;
+  google.protobuf.Duration  ttl        = 2;
+}
+```
+
+```ts
+import { AcmeSession } from './generated/nitro-protobuf'
+
+const bytes = AcmeSession.encode({ created_at: new Date(), ttl: 30_000 }) // ms
+const s = AcmeSession.decode(bytes)
+s.created_at // ISO string, e.g. "2026-05-21T10:00:00.000Z"
+s.ttl // 30000 (ms)
+```
+
+`Timestamp` accepts a `Date` or ISO string and decodes to an ISO string;
+`Duration` is milliseconds. `Struct`, `Value`, `ListValue` and `Any` are **not**
+supported (they need `map`/`oneof`); see [ROADMAP.md](./ROADMAP.md).
 
 ## Performance
 
@@ -206,13 +255,68 @@ Reanimated worklet, a separate JS runtime, or any other thread is **unsupported
 and undefined behaviour** - the most common cause of hard crashes. To
 (de)serialize off the main JS thread, marshal the result back first.
 
+## Compatibility
+
+Verified configurations (others likely work but are untested):
+
+| | Supported / tested |
+|---|---|
+| React Native | 0.81 (Expo SDK 54) and 0.85 |
+| Architecture | **New Architecture only** (TurboModules/Fabric); Old Arch unsupported |
+| JS engine | Hermes |
+| `react-native-nitro-modules` | 0.35.x (peer dependency) |
+| Expo | SDK 54 (config plugin + dev/prebuild) |
+| Platforms | iOS 13+, Android (`minSdk` per RN) |
+| protobuf syntax | proto3 |
+| Node (codegen) | 18+ (plus `python3` once, for the nanopb generator) |
+
+## Semantic versioning & deprecation
+
+This package follows [semver](https://semver.org):
+
+- **patch** - fixes, perf, docs; no API or wire-format change.
+- **minor** - backward-compatible additions (new codegen output, new options,
+  new supported field types). Generated code stays source-compatible.
+- **major** - breaking changes to the public TS API, the generated output shape,
+  or the JS⇄proto value mapping.
+
+Deprecations are announced in the changelog and kept for at least one minor
+release before removal in the next major. The protobuf **wire format is stable**
+(it is standard protobuf); upgrades never change bytes on the wire for a given
+`.proto`. Releases use [Conventional Commits](https://www.conventionalcommits.org)
++ release-please (see [Releasing](#releasing)).
+
+## Errors & validation
+
+`encode`/`decode` **throw** on invalid input - they never silently truncate or
+corrupt data. Encode validates against the schema and the field size limits:
+
+| Condition | Behavior |
+|-----------|----------|
+| Unknown field name | throws `Unknown field "<name>" ...` |
+| Wrong JS type for a field | throws (e.g. expects number/string/array) |
+| `string` over `max_length` | throws `... exceeds max_length ...` |
+| `bytes` over `max_size` | throws `... exceeds max_size ...` |
+| `repeated` over `max_count` | throws `... exceeds max_count ...` |
+| non-numeric 64-bit string | throws (must be a full decimal integer) |
+| `Uint8Array` for `bytes` | throws (use base64 or `number[]`) |
+| `map` / `oneof` field used | throws (not yet supported - see ROADMAP) |
+| unknown fields on **decode** | skipped (standard proto3 forward-compat) |
+
+Tune the limits per field in `.options` (see [Field size limits](#field-size-limits)).
+
 ## Limitations
 
 - Only nanopb **static** fields are supported (sized via `.options` / defaults).
-- `oneof`, `map`, proto2, and well-known types are **not supported** (they throw
-  at runtime).
-- 64-bit integers are represented as strings.
+- A single message must stay **under 64 KB** encoded (nanopb default;
+  `PB_FIELD_32BIT` would lift it - see ROADMAP).
+- `oneof`, `map`, proto2, and the `Struct`/`Value`/`ListValue`/`Any` well-known
+  types are **not yet supported** (they throw with a clear message). Timestamp,
+  Duration, Empty, FieldMask and the scalar wrappers **are** supported.
+- 64-bit integers are represented as decimal strings.
 - `Uint8Array` is not accepted for `bytes` (use base64 or `number[]`).
+
+See [ROADMAP.md](./ROADMAP.md) for what's planned.
 
 ## How it works
 
