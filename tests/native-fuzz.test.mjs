@@ -28,7 +28,9 @@ function findExecutable(name) {
 }
 
 function pickCompiler() {
-  return findExecutable('clang++') ?? findExecutable('c++') ?? findExecutable('g++')
+  return (
+    findExecutable('clang++') ?? findExecutable('c++') ?? findExecutable('g++')
+  )
 }
 
 function run(command, args, options = {}) {
@@ -86,6 +88,11 @@ test('decode/encode fuzz under ASan/UBSan (no memory errors)', (t) => {
       '    Inner inner = 4;',
       '  }',
       '}',
+      'message WithMap {',
+      '  uint32 id = 1;',
+      '  map<string, int32> counts = 2;',
+      '  map<string, Inner> objs = 3;',
+      '}',
     ].join('\n'),
     'utf8'
   )
@@ -104,7 +111,17 @@ test('decode/encode fuzz under ASan/UBSan (no memory errors)', (t) => {
 
   const generate = run(
     process.execPath,
-    [generatorPath, '--protoDir', protoDir, '--outDir', outDir, '--protoc', protoc, '--nanopb', nanopbPlugin],
+    [
+      generatorPath,
+      '--protoDir',
+      protoDir,
+      '--outDir',
+      outDir,
+      '--protoc',
+      protoc,
+      '--nanopb',
+      nanopbPlugin,
+    ],
     { cwd: tmp }
   )
   assert.equal(generate.status, 0, generate.stderr || generate.stdout)
@@ -118,10 +135,40 @@ test('decode/encode fuzz under ASan/UBSan (no memory errors)', (t) => {
     harnessPath,
     path.join(repoRoot, 'cpp', 'ProtobufCodec.cpp'),
     path.join(repoRoot, 'cpp', 'Base64.cpp'),
-    path.join(repoRoot, 'node_modules', 'react-native-nitro-modules', 'cpp', 'core', 'AnyMap.cpp'),
-    path.join(repoRoot, 'node_modules', 'react-native-nitro-modules', 'cpp', 'core', 'ArrayBuffer.cpp'),
-    path.join(repoRoot, 'node_modules', 'react-native', 'ReactCommon', 'jsi', 'jsi', 'jsi.cpp'),
-    path.join(repoRoot, 'node_modules', 'react-native', 'ReactCommon', 'jsi', 'jsi', 'jsilib-posix.cpp'),
+    path.join(
+      repoRoot,
+      'node_modules',
+      'react-native-nitro-modules',
+      'cpp',
+      'core',
+      'AnyMap.cpp'
+    ),
+    path.join(
+      repoRoot,
+      'node_modules',
+      'react-native-nitro-modules',
+      'cpp',
+      'core',
+      'ArrayBuffer.cpp'
+    ),
+    path.join(
+      repoRoot,
+      'node_modules',
+      'react-native',
+      'ReactCommon',
+      'jsi',
+      'jsi',
+      'jsi.cpp'
+    ),
+    path.join(
+      repoRoot,
+      'node_modules',
+      'react-native',
+      'ReactCommon',
+      'jsi',
+      'jsi',
+      'jsilib-posix.cpp'
+    ),
     path.join(repoRoot, 'cpp', 'nanopb', 'pb_common.c'),
     path.join(repoRoot, 'cpp', 'nanopb', 'pb_encode.c'),
     path.join(repoRoot, 'cpp', 'nanopb', 'pb_decode.c'),
@@ -134,7 +181,13 @@ test('decode/encode fuzz under ASan/UBSan (no memory errors)', (t) => {
   const shim = path.join(tmp, 'nm-shim')
   fs.mkdirSync(shim, { recursive: true })
   fs.symlinkSync(
-    path.join(repoRoot, 'node_modules', 'react-native-nitro-modules', 'cpp', 'core'),
+    path.join(
+      repoRoot,
+      'node_modules',
+      'react-native-nitro-modules',
+      'cpp',
+      'core'
+    ),
     path.join(shim, 'NitroModules')
   )
 
@@ -142,8 +195,20 @@ test('decode/encode fuzz under ASan/UBSan (no memory errors)', (t) => {
     shim,
     path.join(repoRoot, 'cpp'),
     path.join(repoRoot, 'cpp', 'nanopb'),
-    path.join(repoRoot, 'node_modules', 'react-native-nitro-modules', 'cpp', 'core'),
-    path.join(repoRoot, 'node_modules', 'react-native-nitro-modules', 'cpp', 'utils'),
+    path.join(
+      repoRoot,
+      'node_modules',
+      'react-native-nitro-modules',
+      'cpp',
+      'core'
+    ),
+    path.join(
+      repoRoot,
+      'node_modules',
+      'react-native-nitro-modules',
+      'cpp',
+      'utils'
+    ),
     path.join(repoRoot, 'node_modules', 'react-native', 'ReactCommon', 'jsi'),
     outDir,
   ]
@@ -168,7 +233,11 @@ test('decode/encode fuzz under ASan/UBSan (no memory errors)', (t) => {
 
   const execute = run(binary, [], {
     cwd: tmp,
-    env: { ...process.env, ASAN_OPTIONS: 'halt_on_error=1', UBSAN_OPTIONS: 'halt_on_error=1:print_stacktrace=1' },
+    env: {
+      ...process.env,
+      ASAN_OPTIONS: 'halt_on_error=1',
+      UBSAN_OPTIONS: 'halt_on_error=1:print_stacktrace=1',
+    },
   })
   assert.equal(execute.status, 0, execute.stderr || execute.stdout)
 })

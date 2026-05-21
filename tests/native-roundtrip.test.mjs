@@ -15,9 +15,7 @@ function findExecutable(name) {
   const pathEntries = (process.env.PATH ?? '').split(path.delimiter)
   const extensions =
     process.platform === 'win32'
-      ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT')
-          .split(';')
-          .filter(Boolean)
+      ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';').filter(Boolean)
       : ['']
   for (const entry of pathEntries) {
     for (const ext of extensions) {
@@ -31,7 +29,9 @@ function findExecutable(name) {
 }
 
 function pickCompiler() {
-  return findExecutable('c++') ?? findExecutable('clang++') ?? findExecutable('g++')
+  return (
+    findExecutable('c++') ?? findExecutable('clang++') ?? findExecutable('g++')
+  )
 }
 
 function run(command, args, options = {}) {
@@ -105,6 +105,7 @@ test('native round-trip encode/decode', (t) => {
       '    string name = 2;',
       '    int32 age = 3;',
       '  }',
+      '  map<string, Inner> objs = 4;',
       '}',
       '',
       'message Inner { string label = 1; }',
@@ -287,14 +288,37 @@ test('native round-trip encode/decode', (t) => {
       '  unknownField->setDouble("unknown", 1.0);',
       '  expectThrow("unknown field", "Unknown field", [&]() { encodeMessage(*info, unknownField); });',
       '',
+      '  // map<string,int32> round-trip (Config.labels).',
       '  const MessageInfo* configInfo = getMessageInfo("acme.Config");',
       '  expect(configInfo != nullptr, "Config message available");',
       '  if (configInfo != nullptr) {',
       '    auto mapField = AnyMap::make();',
       '    AnyObject labels;',
-      '    labels["key"] = AnyValue(1.0);',
+      '    labels["a"] = AnyValue(1.0);',
+      '    labels["b"] = AnyValue(2.0);',
       '    mapField->setObject("labels", labels);',
-      '    expectThrow("map field", "Map fields are not supported", [&]() { encodeMessage(*configInfo, mapField); });',
+      '    auto dm = decodeMessage(*configInfo, encodeMessage(*configInfo, mapField));',
+      '    auto outLabels = dm->getObject("labels");',
+      '    expect(outLabels.size() == 2, "map: 2 entries round-trip");',
+      '    expect(std::get<double>(outLabels.at("a")) == 1.0, "map: value a");',
+      '    expect(std::get<double>(outLabels.at("b")) == 2.0, "map: value b");',
+      '',
+      '    auto msgMap = AnyMap::make();',
+      '    AnyObject objs;',
+      '    objs["x"] = AnyValue(AnyObject{{"label", AnyValue(std::string("hi"))}});',
+      '    msgMap->setObject("objs", objs);',
+      '    auto dmm = decodeMessage(*configInfo, encodeMessage(*configInfo, msgMap));',
+      '    auto outObjs = dmm->getObject("objs");',
+      '    expect(outObjs.size() == 1, "map<string,msg>: 1 entry");',
+      '    auto inner = std::get<AnyObject>(outObjs.at("x"));',
+      '    expect(std::get<std::string>(inner.at("label")) == "hi", "map<string,msg>: nested value");',
+      '  }',
+      '  // map<string,Message> + listMessages hides synthetic entry types.',
+      '  {',
+      '    auto names = getMessageNames();',
+      '    bool hasEntry = false;',
+      '    for (const auto& n : names) if (n.find("Entry") != std::string::npos) hasEntry = true;',
+      '    expect(!hasEntry, "listMessages hides map entry types");',
       '  }',
       '',
       '  // oneof round-trip: only the set member is encoded; others are absent',
@@ -347,10 +371,40 @@ test('native round-trip encode/decode', (t) => {
     testCpp,
     path.join(repoRoot, 'cpp', 'ProtobufCodec.cpp'),
     path.join(repoRoot, 'cpp', 'Base64.cpp'),
-    path.join(repoRoot, 'node_modules', 'react-native-nitro-modules', 'cpp', 'core', 'AnyMap.cpp'),
-    path.join(repoRoot, 'node_modules', 'react-native-nitro-modules', 'cpp', 'core', 'ArrayBuffer.cpp'),
-    path.join(repoRoot, 'node_modules', 'react-native', 'ReactCommon', 'jsi', 'jsi', 'jsi.cpp'),
-    path.join(repoRoot, 'node_modules', 'react-native', 'ReactCommon', 'jsi', 'jsi', 'jsilib-posix.cpp'),
+    path.join(
+      repoRoot,
+      'node_modules',
+      'react-native-nitro-modules',
+      'cpp',
+      'core',
+      'AnyMap.cpp'
+    ),
+    path.join(
+      repoRoot,
+      'node_modules',
+      'react-native-nitro-modules',
+      'cpp',
+      'core',
+      'ArrayBuffer.cpp'
+    ),
+    path.join(
+      repoRoot,
+      'node_modules',
+      'react-native',
+      'ReactCommon',
+      'jsi',
+      'jsi',
+      'jsi.cpp'
+    ),
+    path.join(
+      repoRoot,
+      'node_modules',
+      'react-native',
+      'ReactCommon',
+      'jsi',
+      'jsi',
+      'jsilib-posix.cpp'
+    ),
     path.join(repoRoot, 'cpp', 'nanopb', 'pb_common.c'),
     path.join(repoRoot, 'cpp', 'nanopb', 'pb_encode.c'),
     path.join(repoRoot, 'cpp', 'nanopb', 'pb_decode.c'),
@@ -364,7 +418,13 @@ test('native round-trip encode/decode', (t) => {
   const shim = path.join(tmp, 'nm-shim')
   fs.mkdirSync(shim, { recursive: true })
   fs.symlinkSync(
-    path.join(repoRoot, 'node_modules', 'react-native-nitro-modules', 'cpp', 'core'),
+    path.join(
+      repoRoot,
+      'node_modules',
+      'react-native-nitro-modules',
+      'cpp',
+      'core'
+    ),
     path.join(shim, 'NitroModules')
   )
 
@@ -372,8 +432,20 @@ test('native round-trip encode/decode', (t) => {
     shim,
     path.join(repoRoot, 'cpp'),
     path.join(repoRoot, 'cpp', 'nanopb'),
-    path.join(repoRoot, 'node_modules', 'react-native-nitro-modules', 'cpp', 'core'),
-    path.join(repoRoot, 'node_modules', 'react-native-nitro-modules', 'cpp', 'utils'),
+    path.join(
+      repoRoot,
+      'node_modules',
+      'react-native-nitro-modules',
+      'cpp',
+      'core'
+    ),
+    path.join(
+      repoRoot,
+      'node_modules',
+      'react-native-nitro-modules',
+      'cpp',
+      'utils'
+    ),
     path.join(repoRoot, 'node_modules', 'react-native', 'ReactCommon', 'jsi'),
     outDir,
   ]

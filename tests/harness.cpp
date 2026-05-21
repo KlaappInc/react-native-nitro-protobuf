@@ -276,6 +276,66 @@ int main() {
     }
   }
 
+  // ---------- 12. map<K,V>: round-trip + adversarial decode ----------
+  const MessageInfo* withMap = getMessageInfo("acme.WithMap");
+  ok(withMap != nullptr, "acme.WithMap registered");
+  if (withMap) {
+    // listMessages must hide the synthetic entry types.
+    auto names = getMessageNames();
+    bool hasEntry = false;
+    for (const auto& n : names) if (n.find("Entry") != std::string::npos) hasEntry = true;
+    ok(!hasEntry, "listMessages hides map entry types");
+
+    expectNoCrash("map<string,int32> rt", [&]{
+      auto m = AnyMap::make(); m->setDouble("id", 1);
+      AnyObject counts; counts["a"] = AnyValue(1.0); counts["b"] = AnyValue(2.0);
+      m->setObject("counts", counts);
+      auto d = decodeMessage(*withMap, encodeMessage(*withMap, m));
+      auto out = d->getObject("counts");
+      ok(out.size() == 2 && std::get<double>(out.at("a")) == 1.0, "map scalar values");
+    });
+    expectNoCrash("map<string,Inner> rt", [&]{
+      auto m = AnyMap::make();
+      AnyObject objs; objs["x"] = AnyValue(AnyObject{{"label", AnyValue(std::string("hi"))}});
+      m->setObject("objs", objs);
+      auto d = decodeMessage(*withMap, encodeMessage(*withMap, m));
+      auto out = d->getObject("objs");
+      ok(out.size() == 1, "map message value count");
+    });
+    expectNoCrash("map empty", [&]{
+      auto m = AnyMap::make(); m->setDouble("id", 3);
+      decodeMessage(*withMap, encodeMessage(*withMap, m));
+    });
+    // Adversarial garbage decoded as WithMap (entry key/value decode on hostile input).
+    {
+      std::mt19937 rng(0x5A1AD00D);
+      std::uniform_int_distribution<int> byte(0,255);
+      for (int iter=0; iter<20000; ++iter) {
+        size_t len = rng()%96;
+        std::vector<uint8_t> g(len);
+        for (auto& b: g) b = (uint8_t)byte(rng);
+        if (g.empty()) g.reserve(1);
+        auto ab = ArrayBuffer::copy(g.data(), g.size());
+        expectNoCrash("decode random garbage (WithMap)", [&]{ decodeMessage(*withMap, ab); });
+      }
+    }
+    // Bit-flips of a valid map buffer.
+    {
+      auto m = AnyMap::make();
+      AnyObject counts; counts["kk"] = AnyValue(7.0);
+      m->setObject("counts", counts);
+      AnyObject objs; objs["o"] = AnyValue(AnyObject{{"label", AnyValue(std::string("z"))}});
+      m->setObject("objs", objs);
+      auto buf = encodeMessage(*withMap, m);
+      std::vector<uint8_t> full(buf->data(), buf->data()+buf->size());
+      for (size_t i=0;i<full.size();++i) for (int bit=0;bit<8;++bit) {
+        auto f=full; f[i]^=(1<<bit);
+        auto ab=ArrayBuffer::copy(f.data(),f.size());
+        expectNoCrash("decode map bitflip", [&]{ decodeMessage(*withMap, ab); });
+      }
+    }
+  }
+
   std::printf("\n==== HARNESS DONE ====\nPASS checks: %d\nFAIL checks: %d\n", g_ok, g_fail);
   return g_fail==0 ? 0 : 1;
 }

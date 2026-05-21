@@ -256,6 +256,32 @@ function mapFieldType(field) {
   }
 }
 
+// "my_map" -> "MyMap" (protoc/nanopb name the synthetic map entry
+// "<Message>_<PascalField>Entry").
+function pascalCase(name) {
+  return name
+    .split('_')
+    .filter(Boolean)
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join('')
+}
+
+// proto map key type -> codec FieldType (keys are scalar/string only).
+const MAP_KEY_FIELD_TYPE = {
+  int32: 'Int32',
+  sint32: 'SInt32',
+  sfixed32: 'SFixed32',
+  uint32: 'UInt32',
+  fixed32: 'Fixed32',
+  int64: 'Int64',
+  sint64: 'SInt64',
+  sfixed64: 'SFixed64',
+  uint64: 'UInt64',
+  fixed64: 'Fixed64',
+  bool: 'Bool',
+  string: 'String',
+}
+
 // Parse all *.options files in the given dirs into a Map of
 // target-pattern -> Set(optionKeys present). nanopb targets may use `*` globs.
 function loadOptionsKeys(dirs) {
@@ -511,6 +537,14 @@ function tsFieldType(field, opts = {}) {
         base = 'number'
     }
   }
+  // map<K,V> -> a JS object keyed by string (or number for integer keys).
+  if (field.map) {
+    const keyTs =
+      field.keyType === 'string' || field.keyType === 'bool'
+        ? 'string'
+        : 'number'
+    return `{ [key: ${keyTs}]: ${base} }`
+  }
   return field.repeated ? `(${base})[]` : base
 }
 
@@ -534,6 +568,9 @@ function generateTypes(messages, opts = {}) {
   // Conversion kind for a field:
   //   ts/dur (WKT), i64 (bigint), e:<EnumKey> (enum strings), <message name>.
   const fieldKind = (field) => {
+    // map<> values are not run through the inline scalar conversions (the
+    // transform handles object fields + arrays, not Record values).
+    if (field.map) return null
     if (field.resolvedType instanceof protobuf.Enum) {
       if (!opts.enumsAsStrings) return null
       enums.set(field.resolvedType.fullName, field.resolvedType.values)
@@ -892,6 +929,8 @@ async function runGenerate(args) {
     if (!current || !current.nestedArray) continue
     for (const nested of current.nestedArray) {
       if (nested instanceof protobuf.Type) {
+        // protobuf.js does not surface synthetic map<> entry types here; they
+        // are synthesized into the registry from each map field below.
         if (!nested.options?.map_entry) {
           messages.push(nested)
         }
@@ -904,9 +943,8 @@ async function runGenerate(args) {
 
   messages.sort((a, b) => a.fullName.localeCompare(b.fullName))
 
-  // map<> and oneof fields are marked in the registry; the codec rejects them at
-  // encode time with a clear message (see ROADMAP.md). This also covers
-  // google.protobuf.Struct/Value/ListValue/Any, which are built on map/oneof.
+  // oneof fields work; map<> fields are encoded/decoded via their registered
+  // entry type (see codec). Struct/Value/ListValue/Any still need recursion.
 
   // Validate nanopb .options for static fields. Skipped with --skipProtoc,
   // which only emits the registry (no nanopb compilation) - used by unit tests.
@@ -979,14 +1017,58 @@ async function runGenerate(args) {
       structType: cType,
       fieldsVar,
       initFn,
+      isMapEntry: Boolean(message.options?.map_entry),
     })
+
+    // Synthesize the registration for each map<> field's nanopb entry message
+    // (protoc/nanopb generate "<Msg>_<PascalField>Entry { key=1; value=2; }";
+    // protobuf.js does not model it, so we emit it from keyType + value type).
+    for (const field of message.fieldsArray) {
+      if (!field.map) continue
+      const entryStruct = `${cBase}_${pascalCase(field.name)}Entry`
+      const entryInitFn = `init_default_${entryStruct}`
+      const entryFieldsVar = `k_${entryStruct}_fields`
+      const keyType = MAP_KEY_FIELD_TYPE[field.keyType] ?? 'String'
+      const valueType = mapFieldType(field)
+      const valueTypeName =
+        valueType === 'Message' || valueType === 'Enum'
+          ? (field.resolvedType?.fullName?.replace(/^\./, '') ?? '')
+          : ''
+      const valueTypeLit = valueTypeName
+        ? `"${cppString(valueTypeName)}"`
+        : 'nullptr'
+
+      lines.push(`static void ${entryInitFn}(void* message) {`)
+      lines.push(
+        `  *static_cast<${entryStruct}*>(message) = ${entryStruct}_init_default;`
+      )
+      lines.push('}')
+      lines.push('')
+      lines.push(`static const FieldInfo ${entryFieldsVar}[] = {`)
+      lines.push(
+        `  {"key", 1, FieldType::${keyType}, false, false, false, nullptr},`
+      )
+      lines.push(
+        `  {"value", 2, FieldType::${valueType}, false, false, false, ${valueTypeLit}},`
+      )
+      lines.push('};')
+      lines.push('')
+      messageEntries.push({
+        name: `${fullName}.${pascalCase(field.name)}Entry`,
+        descriptor: `${entryStruct}_msg`,
+        structType: entryStruct,
+        fieldsVar: entryFieldsVar,
+        initFn: entryInitFn,
+        isMapEntry: true,
+      })
+    }
   }
 
   lines.push('static const MessageInfo kMessages[] = {')
   for (const entry of messageEntries) {
     lines.push(
       `  {"${cppString(entry.name)}", &${entry.descriptor}, sizeof(${entry.structType}), ` +
-        `${entry.fieldsVar}, sizeof(${entry.fieldsVar}) / sizeof(${entry.fieldsVar}[0]), ${entry.initFn}},`
+        `${entry.fieldsVar}, sizeof(${entry.fieldsVar}) / sizeof(${entry.fieldsVar}[0]), ${entry.initFn}, ${entry.isMapEntry ? 'true' : 'false'}},`
     )
   }
   lines.push('};')
@@ -1018,6 +1100,9 @@ async function runGenerate(args) {
   lines.push('  std::vector<std::string> names;')
   lines.push('  names.reserve(sizeof(kMessages) / sizeof(kMessages[0]));')
   lines.push('  for (const auto& message : kMessages) {')
+  lines.push(
+    '    if (message.is_map_entry) continue; // hide synthetic map entries'
+  )
   lines.push('    names.emplace_back(message.name);')
   lines.push('  }')
   lines.push('  return names;')
