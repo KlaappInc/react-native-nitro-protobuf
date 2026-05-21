@@ -68,10 +68,12 @@ Legend: **✅ done** · **◑ partial** · **🔜 next** · **🧭 planned** · 
   and `ListValue`, which reference `Value`) — nanopb static messages can't be
   self-recursive. Needs a callback/dynamic strategy. `Any` also needs a type-URL
   registry.
-- 🧭 **proto2 syntax.** Currently proto3 only. proto2 explicit presence /
-  required / extensions / group fields are a meaningful generator + codec change.
-- 🧭 **Explicit field presence (`optional` in proto3).** Distinguish "unset" from
-  "default". Needs nanopb `has_` handling surfaced into the AnyMap shape.
+- ◑ **proto2 syntax** (1.2.0). `optional` (explicit presence via nanopb `has_`),
+  `required`, `repeated` and field defaults round-trip; unset optionals are
+  omitted on decode. **Extensions and groups are not supported** (extensions are
+  ignored by the parser; groups should be modeled as nested messages).
+- ✅ **Explicit field presence.** proto2 `optional` / proto3 `optional` decode to
+  present-or-absent via the nanopb `has_` bit (1.2.0).
 - ✅ **Enums as string literals (option).** `--enums string` — done (1.2.0).
 
 ## Developer experience

@@ -327,7 +327,7 @@ Verified configurations (others likely work but are untested):
 | `react-native-nitro-modules` | 0.35.x (peer dependency) |
 | Expo | SDK 54 (config plugin + dev/prebuild) |
 | Platforms | iOS 13+, Android (`minSdk` per RN) |
-| protobuf syntax | proto3 |
+| protobuf syntax | proto3 + proto2 (no extensions/groups) |
 | Node (codegen) | 18+ (plus `python3` once, for the nanopb generator) |
 
 ## Semantic versioning & deprecation
@@ -369,8 +369,9 @@ Tune the limits per field in `.options` (see [Field size limits](#field-size-lim
 - Only nanopb **static** fields are supported (sized via `.options` / defaults).
 - A single message must stay **under 64 KB** encoded (nanopb default;
   `PB_FIELD_32BIT` would lift it - see ROADMAP).
-- proto2 and the `Struct`/`Value`/`ListValue`/`Any` well-known types are **not
-  yet supported** (they throw with a clear message). `oneof`, `map`, Timestamp,
+- The `Struct`/`Value`/`ListValue`/`Any` well-known types are **not yet
+  supported** (they throw with a clear message). `oneof`, `map`, proto2
+  (optional/required/repeated/defaults; no extensions/groups), Timestamp,
   Duration, Empty, FieldMask and the scalar wrappers **are** supported.
 - 64-bit integers are represented as decimal strings.
 - `Uint8Array` is not accepted for `bytes` (use base64 or `number[]`).
