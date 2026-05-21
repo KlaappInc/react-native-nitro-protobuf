@@ -115,9 +115,16 @@ Optional `nitro-protobuf.config.json` at your project root (CLI flags override i
 {
   "protoDir": "proto",
   "tsOut": "./generated",
-  "defaults": { "maxLength": 256, "maxSize": 256, "maxCount": 16 }
+  "defaults": { "maxLength": 256, "maxSize": 256, "maxCount": 16 },
+  "bigint": false,
+  "enums": "number"
 }
 ```
+
+- `bigint: true` (or `--bigint`) types 64-bit fields as `bigint` instead of the
+  default precision-safe decimal `string`.
+- `enums: "string"` (or `--enums string`) types enums as their value-name
+  string-literal union (e.g. `'ADMIN' | 'USER'`) instead of `number`.
 
 The nanopb C sources go to the package's `generated/` (where the pod / CMake
 compile them); the typed `nitro-protobuf.ts` goes to `tsOut`. Set `tsOut` to a
@@ -163,6 +170,8 @@ Options:
   --protoc <path>       Use a specific protoc (default: bundled)
   --nanopb <path>       Use a specific protoc-gen-nanopb (default: auto-installed)
   --strict              Require explicit .options for every static field
+  --bigint              Type 64-bit fields as bigint (default: decimal string)
+  --enums <mode>        Enum representation: "string" or "number" (default)
   --watch, -w           Regenerate on .proto changes (debounced)
 ```
 
@@ -231,6 +240,53 @@ s.ttl // 30000 (ms)
 `Timestamp` accepts a `Date` or ISO string and decodes to an ISO string;
 `Duration` is milliseconds. `Struct`, `Value`, `ListValue` and `Any` are **not**
 supported (they need `map`/`oneof`); see [ROADMAP.md](./ROADMAP.md).
+
+### Runtime helpers
+
+The generated module also gives you:
+
+```ts
+import { AcmeUser, byteLength } from './generated/nitro-protobuf'
+
+// Encoded size without allocating the buffer (typed + per-message).
+AcmeUser.byteLength(user) // number
+byteLength('acme.User', user) // generic
+
+// Lightweight reflection: field metadata.
+AcmeUser.fields // [{ name: 'id', tag: 1, type: 'uint32', repeated: false }, …]
+```
+
+Encode/decode errors are thrown as typed `ProtobufError`s, so you can branch on
+`kind` instead of matching message strings:
+
+```ts
+import { ProtobufError } from '@klaappinc/react-native-nitro-protobuf'
+
+try {
+  AcmeUser.encode(huge)
+} catch (e) {
+  if (e instanceof ProtobufError && e.kind === 'limit-exceeded') {
+    console.warn(`${e.field} is too large`)
+  }
+}
+```
+
+`kind` is one of `unknown-field`, `unsupported-field`, `limit-exceeded`,
+`type-mismatch`, `unknown-message`, `decode`, `unknown`; `field` and
+`messageName` are populated when known.
+
+### Metro integration
+
+Regenerate on every Metro start (pairs with `proto:generate --watch` for live
+edits):
+
+```js
+// metro.config.js
+const { getDefaultConfig } = require('@react-native/metro-config')
+const { withNitroProtobuf } = require('@klaappinc/react-native-nitro-protobuf/metro')
+
+module.exports = withNitroProtobuf(getDefaultConfig(__dirname), { protoDir: 'proto' })
+```
 
 ## Performance
 
