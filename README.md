@@ -8,55 +8,72 @@ Nitro + Nanopb bridge for fast protobuf encode/decode on iOS and Android.
 - JS inputs/outputs are JSON-like `AnyMap` objects.
 - Binary payloads are passed as `ArrayBuffer`.
 
-## Install
+## Quickstart
 
 ```
 npm install react-native-nitro-protobuf react-native-nitro-modules
-```
-
-```
+npx react-native-nitro-protobuf init     # scaffolds proto/ + config + script
+# edit proto/*.proto, then:
+npm run proto:generate                    # no protoc/nanopb to install
 cd ios && pod install
 ```
 
-## Generate Nanopb sources
+`proto:generate` needs **no system tools**: it uses a bundled `protoc`
+(`grpc-tools`) and installs the matching nanopb generator on first run
+(requires `python3`, which ships with macOS/Linux). Override with `--protoc` /
+`--nanopb` if you prefer your own.
 
-1) Install `protoc` and the Nanopb generator:
+It writes (into the package's `generated/`, compiled by the pod/CMake):
 
-```
-brew install protobuf nanopb
-```
+- `*.pb.h` / `*.pb.c` (nanopb) and `nitro_protobuf_registry.cpp`
+- `nitro-protobuf.ts` — typed interfaces + `encode`/`decode` for every message
 
-2) Put your `.proto` files in your app (example uses `./proto`).
-3) Add `.options` files to define `max_length`, `max_size`, and `max_count`.
-   **Required:** every `string` (`max_length`), `bytes` (`max_size`), and
-   `repeated` field (`max_count`) must have an option, otherwise Nanopb emits a
-   *callback* field that this library cannot encode/decode. The generator now
-   **fails with an explicit error** listing any field that is missing one.
-4) Generate C sources + registry:
+For **Expo**, add the plugin instead of running the script manually — it
+regenerates on `expo prebuild`:
 
-```
-npx react-native-nitro-protobuf --protoDir ./proto --outDir ./node_modules/react-native-nitro-protobuf/generated
+```json
+{ "plugins": [["react-native-nitro-protobuf", { "protoDir": "proto" }]] }
 ```
 
-The generator writes:
+## Field size limits (no hand-written `.options` needed)
 
-- `generated/*.pb.h` and `generated/*.pb.c`
-- `generated/nitro_protobuf_registry.cpp`
+Nanopb needs a fixed size for every `string`/`bytes`/`repeated` field. Defaults
+are applied automatically (`max_length` 256, `max_size` 256, `max_count` 16), so
+your protos compile out of the box. Tune them globally in
+`nitro-protobuf.config.json`:
+
+```json
+{ "protoDir": "proto", "defaults": { "maxLength": 64, "maxSize": 1024, "maxCount": 32 } }
+```
+
+…or per field with a standard nanopb `.proto`-adjacent `<name>.options` file
+(specific entries override the defaults):
+
+```
+acme.User.name max_length: 32
+acme.User.avatar max_size: 1024
+```
+
+Pass `--strict` to require an explicit option for every field instead (no
+defaults) — useful for tightly memory-constrained targets.
 
 ## Usage
 
+Use the generated typed `encode`/`decode` (autocomplete + compile-time checks):
+
+```ts
+import { encode, decode, type AcmeUser } from './generated/nitro-protobuf'
+
+const user: AcmeUser = { id: 1, name: 'Ada', scores: [10, 20], active: true }
+const bytes = encode('acme.User', user)   // ArrayBuffer
+const back = decode('acme.User', bytes)    // AcmeUser
+```
+
+Or call the runtime object directly (untyped):
+
 ```ts
 import { NitroProtobuf } from 'react-native-nitro-protobuf'
-
-const encoded = NitroProtobuf.encode('nitro.protobuf.UserProfile', {
-  id: 1,
-  name: 'Ada',
-  scores: [10, 20],
-  avatar: 'base64...',
-  active: true,
-})
-
-const decoded = NitroProtobuf.decode('nitro.protobuf.UserProfile', encoded)
+const bytes = NitroProtobuf.encode('acme.User', { id: 1, name: 'Ada' })
 const names = NitroProtobuf.listMessages()
 ```
 
