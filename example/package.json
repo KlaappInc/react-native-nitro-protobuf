@@ -8,7 +8,7 @@
     "lint": "eslint .",
     "start": "react-native start",
     "test": "jest",
-    "proto:generate": "npx react-native-nitro-protobuf --protoDir ./proto --outDir ./node_modules/react-native-nitro-protobuf/generated"
+    "proto:generate": "npx react-native-nitro-protobuf --protoDir ./proto --outDir ./node_modules/@klaappinc/react-native-nitro-protobuf/generated"
   },
   "dependencies": {
     "react": "19.2.6",
@@ -16,7 +16,7 @@
     "@react-native/new-app-screen": "0.85.3",
     "react-native-safe-area-context": "^5.8.0",
     "react-native-nitro-modules": "0.35.7",
-    "react-native-nitro-protobuf": "file:..",
+    "@klaappinc/react-native-nitro-protobuf": "file:..",
     "protobufjs": "^8.4.0"
   },
   "devDependencies": {
