@@ -76,6 +76,16 @@ test('decode/encode fuzz under ASan/UBSan (no memory errors)', (t) => {
       '  float ratio = 10;',
       '  double weight = 11;',
       '}',
+      '',
+      'message Inner { string label = 1; }',
+      'message Pick {',
+      '  uint32 id = 1;',
+      '  oneof choice {',
+      '    string name = 2;',
+      '    int32 age = 3;',
+      '    Inner inner = 4;',
+      '  }',
+      '}',
     ].join('\n'),
     'utf8'
   )
