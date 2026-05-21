@@ -5,10 +5,12 @@ set (PACKAGE_NAME NitroProtobuf)
 set (CMAKE_VERBOSE_MAKEFILE ON)
 set (CMAKE_CXX_STANDARD 20)
 
-# Define C++ library and add all sources
+# Define C++ library and add all sources. The generated globs are RECURSIVE so
+# nanopb sources for imported well-known types (generated/google/protobuf/*.pb.c)
+# are compiled too; the iOS podspec uses an equivalent "generated/**" glob.
 file(GLOB NITRO_PROTOBUF_CPP_SOURCES "../cpp/*.cpp")
-file(GLOB NITRO_PROTOBUF_GENERATED_CPP "../generated/*.cpp")
-file(GLOB NITRO_PROTOBUF_GENERATED_C "../generated/*.pb.c")
+file(GLOB_RECURSE NITRO_PROTOBUF_GENERATED_CPP "../generated/*.cpp")
+file(GLOB_RECURSE NITRO_PROTOBUF_GENERATED_C "../generated/*.pb.c")
 file(GLOB NITRO_PROTOBUF_NANOPB "../cpp/nanopb/*.c")
 
 add_library(${PACKAGE_NAME} SHARED

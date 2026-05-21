@@ -25,7 +25,11 @@ Pod::Spec.new do |s|
   ]
 
   s.pod_target_xcconfig = {
-    'HEADER_SEARCH_PATHS' => '$(inherited) "$(PODS_TARGET_SRCROOT)/cpp/nanopb"',
+    # generated/ on the search path so well-known-type sources resolve their
+    # subpath include (e.g. generated/google/protobuf/timestamp.pb.c includes
+    # "google/protobuf/timestamp.pb.h"); mirrors the Android CMake include dir.
+    'HEADER_SEARCH_PATHS' =>
+      '$(inherited) "$(PODS_TARGET_SRCROOT)/cpp/nanopb" "$(PODS_TARGET_SRCROOT)/generated"',
   }
 
   load 'nitrogen/generated/ios/NitroProtobuf+autolinking.rb'
