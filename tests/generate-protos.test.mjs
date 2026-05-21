@@ -134,6 +134,37 @@ test('marks map and oneof fields', () => {
   )
 })
 
+test('map fields type as objects; map values convert (WKT)', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nitro-proto-'))
+  const protoDir = path.join(tmp, 'proto')
+  const outDir = path.join(tmp, 'generated')
+
+  writeProto(
+    protoDir,
+    'cal.proto',
+    [
+      'syntax = "proto3";',
+      'package acme;',
+      'import "google/protobuf/timestamp.proto";',
+      'message Cal {',
+      '  map<string, google.protobuf.Timestamp> events = 1;',
+      '  map<string, int32> plain = 2;',
+      '}',
+    ].join('\n')
+  )
+  const result = runGenerator(
+    ['--protoDir', protoDir, '--outDir', outDir, '--skipProtoc'],
+    tmp
+  )
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+  const types = fs.readFileSync(path.join(outDir, 'nitro-protobuf.ts'), 'utf8')
+  assert.match(types, /events\?: \{ \[key: string\]: Date \| string \}/)
+  assert.match(types, /plain\?: \{ \[key: string\]: number \}/)
+  // Map of Timestamp converts per-value (m:ts); plain int32 map needs no conv.
+  assert.match(types, /"events":"m:ts"/)
+  assert.doesNotMatch(types, /"plain":/)
+})
+
 test('resolves well-known types and emits typed API + conversions', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nitro-proto-'))
   const protoDir = path.join(tmp, 'proto')
