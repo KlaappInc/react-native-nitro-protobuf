@@ -1,7 +1,12 @@
+<p align="center">
+  <img src="./.github/banner.png" alt="Klaapp - @klaappinc/react-native-nitro-protobuf" width="100%" />
+</p>
+
 # react-native-nitro-protobuf
 
 > Blazing-fast Protocol Buffers for React Native, powered by [Nitro Modules](https://nitro.margelo.com) and [nanopb](https://github.com/nanopb/nanopb) (C++).
 
+[![CI](https://github.com/KlaappInc/react-native-nitro-protobuf/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/KlaappInc/react-native-nitro-protobuf/actions/workflows/test.yml)
 ![platforms](https://img.shields.io/badge/platforms-iOS%20%7C%20Android-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![powered by nitro](https://img.shields.io/badge/powered%20by-nitro-orange)
