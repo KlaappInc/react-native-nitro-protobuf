@@ -14,7 +14,7 @@ afterAll(() => {
   delete (global as { __IS_JEST__?: boolean }).__IS_JEST__;
 });
 
-jest.mock('react-native-nitro-protobuf', () => ({
+jest.mock('@klaappinc/react-native-nitro-protobuf', () => ({
   NitroProtobuf: {
     encode: () => new ArrayBuffer(0),
     decode: () => ({ ok: true }),

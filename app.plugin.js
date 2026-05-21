@@ -3,11 +3,11 @@
 // `proto:generate` step for Expo apps.
 //
 // app.json / app.config.js:
-//   { "plugins": [["react-native-nitro-protobuf", { "protoDir": "proto" }]] }
+//   { "plugins": [["@klaappinc/react-native-nitro-protobuf", { "protoDir": "proto" }]] }
 const { execFileSync } = require('child_process')
 
 function runGenerate(projectRoot, props) {
-  const bin = require.resolve('react-native-nitro-protobuf/scripts/generate-protos.mjs')
+  const bin = require.resolve('@klaappinc/react-native-nitro-protobuf/scripts/generate-protos.mjs')
   const args = ['generate']
   if (props.protoDir) args.push('--protoDir', props.protoDir)
   if (props.outDir) args.push('--outDir', props.outDir)
