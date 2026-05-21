@@ -64,7 +64,8 @@ function collectProtoFiles(dir) {
 }
 
 function cppString(value) {
-  return value.replace(/\\\\/g, '\\\\\\\\').replace(/"/g, '\\"')
+  // Escape backslashes first, then double quotes, for a C++ string literal.
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
 function mapFieldType(field) {
@@ -103,6 +104,92 @@ function mapFieldType(field) {
       return 'Bytes'
     default:
       throw new Error(`Unsupported field type: ${field.type}`)
+  }
+}
+
+// Parse all *.options files in the given dirs into a Map of
+// target-pattern -> Set(optionKeys present). nanopb targets may use `*` globs.
+function loadOptionsKeys(dirs) {
+  const map = new Map()
+  const seen = new Set()
+  for (const dir of dirs) {
+    let entries = []
+    try {
+      entries = fs.readdirSync(dir)
+    } catch {
+      continue
+    }
+    for (const name of entries) {
+      if (!name.endsWith('.options')) continue
+      const full = path.join(dir, name)
+      if (seen.has(full)) continue
+      seen.add(full)
+      const text = fs.readFileSync(full, 'utf8')
+      for (const raw of text.split('\n')) {
+        const line = raw.replace(/#.*$/, '').trim()
+        if (!line) continue
+        const m = line.match(/^(\S+)\s+(.*)$/)
+        if (!m) continue
+        const target = m[1]
+        const keys = [...m[2].matchAll(/([A-Za-z_]+)\s*:/g)].map((x) => x[1])
+        if (!map.has(target)) map.set(target, new Set())
+        for (const k of keys) map.get(target).add(k)
+      }
+    }
+  }
+  return map
+}
+
+function optionPatternMatches(pattern, name) {
+  const rx = new RegExp(
+    '^' +
+      pattern
+        .split('*')
+        .map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+        .join('.*') +
+      '$'
+  )
+  return rx.test(name)
+}
+
+function fieldHasOption(optsMap, fullField, key) {
+  for (const [pattern, keys] of optsMap) {
+    if (keys.has(key) && optionPatternMatches(pattern, fullField)) return true
+  }
+  return false
+}
+
+// Hard-fail if any codec-supported static field is missing the nanopb option
+// that keeps it a static (non-callback) field. oneof/map fields are skipped:
+// the codec rejects them at runtime regardless, so they never become static.
+function validateOptions(messages, optsMap) {
+  const problems = []
+  for (const message of messages) {
+    const fullName = message.fullName.startsWith('.')
+      ? message.fullName.slice(1)
+      : message.fullName
+    for (const field of message.fieldsArray) {
+      if (field.partOf || field.map) continue
+      const ff = `${fullName}.${field.name}`
+      if (field.repeated && !fieldHasOption(optsMap, ff, 'max_count')) {
+        problems.push(`${ff} (repeated) needs 'max_count'`)
+      }
+      if (field.type === 'string' && !fieldHasOption(optsMap, ff, 'max_length')) {
+        problems.push(`${ff} (string) needs 'max_length'`)
+      }
+      if (field.type === 'bytes' && !fieldHasOption(optsMap, ff, 'max_size')) {
+        problems.push(`${ff} (bytes) needs 'max_size'`)
+      }
+    }
+  }
+  if (problems.length > 0) {
+    throw new Error(
+      'Missing required nanopb .options for static fields (else nanopb emits ' +
+        'callback fields the codec cannot handle at runtime):\n  - ' +
+        problems.join('\n  - ') +
+        '\nAdd them to a .options file beside your .proto, e.g.\n' +
+        '  acme.User.name max_length: 64'
+    )
   }
 }
 
@@ -196,6 +283,12 @@ async function main() {
 
   messages.sort((a, b) => a.fullName.localeCompare(b.fullName))
 
+  // Validate nanopb .options for static fields. Skipped with --skipProtoc,
+  // which only emits the registry (no nanopb compilation) — used by unit tests.
+  if (!args.skipProtoc) {
+    validateOptions(messages, loadOptionsKeys(includeDirs))
+  }
+
   const headerIncludes = new Set(
     protoFiles.map((file) => `${path.basename(file, '.proto')}.pb.h`)
   )
@@ -234,7 +327,7 @@ async function main() {
       const fieldType = mapFieldType(field)
       const typeName =
         fieldType === 'Message' || fieldType === 'Enum'
-          ? field.resolvedType?.fullName?.replace(/^\\./, '') ?? ''
+          ? field.resolvedType?.fullName?.replace(/^\./, '') ?? ''
           : ''
       const typeNameLiteral = typeName ? `"${cppString(typeName)}"` : 'nullptr'
       const isOneof = Boolean(field.partOf)
