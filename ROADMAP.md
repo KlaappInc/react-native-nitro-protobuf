@@ -4,11 +4,31 @@ This captures the planned direction for `react-native-nitro-protobuf`, distilled
 from user feedback. It is honest about what works today, what is deliberately
 out of scope, and what is coming. Priorities are relative, not dated.
 
-Legend: **✅ done** · **🔜 next** · **🧭 planned** · **🧪 exploring** · **🚫 won't do (for now)**
+Legend: **✅ done** · **◑ partial** · **🔜 next** · **🧭 planned** · **🧪 exploring** · **🚫 won't do (for now)**
 
 ---
 
-## Shipped recently (1.1.0)
+## Shipped (1.2.0)
+
+- ✅ **bigint option.** `--bigint` / `config.bigint` types 64-bit fields as
+  `bigint` (converted to decimal strings at the codec boundary). Default stays
+  precision-safe `string`.
+- ✅ **String enums option.** `--enums string` / `config.enums` types enums as
+  their value-name string-literal union, mapping names ⇄ numbers automatically.
+- ✅ **Typed error classes.** `ProtobufError` (+ `ProtobufLimitError`,
+  `ProtobufFieldError`) with `kind`, `messageName`, `field`; the generated
+  facade wraps native throws via `classifyProtobufError`.
+- ✅ **`byteLength()`.** Encoded size without allocating the output buffer
+  (native `pb_get_encoded_size`); typed generic + per-message helper.
+- ✅ **Runtime reflection.** Each generated message exposes a `fields` metadata
+  array (name / tag / proto-type / repeated).
+- ✅ **Codegen diagnostics.** Non-strict generation warns about fields falling
+  back to the default size limits.
+- ✅ **Metro plugin.** `withNitroProtobuf(config, opts)` regenerates on Metro
+  startup (`@klaappinc/react-native-nitro-protobuf/metro`).
+- ✅ **protobuf.js wire-interop test** in CI (native bytes ⇄ protobuf.js).
+
+## Shipped (1.1.0)
 
 - ✅ **Typed per-message API.** Codegen emits `Message.encode(obj)` /
   `Message.decode(bytes)` objects (merged with the message interface) alongside
@@ -21,7 +41,7 @@ Legend: **✅ done** · **🔜 next** · **🧭 planned** · **🧪 exploring** 
   so the native codec handles them with no C++ change.
 - ✅ **Watch-mode codegen.** `generate --watch` (`npm run proto:watch`)
   regenerates on `.proto` changes (debounced).
-- ✅ **Honest benchmarks.** A representative size sweep (~1 KB / 10 KB / 100 KB)
+- ✅ **Honest benchmarks.** A representative size sweep (~1 KB / 10 KB / 50 KB)
   plus the **base64 / `number[]` boundary-conversion cost** users actually pay
   for `bytes`. See [PERFORMANCE.md](./PERFORMANCE.md).
 - ✅ **Docs.** Compatibility matrix, semver/deprecation policy, and the real
@@ -32,13 +52,18 @@ Legend: **✅ done** · **🔜 next** · **🧭 planned** · **🧪 exploring** 
 ## Coverage (schema features)
 
 - 🔜 **`oneof`.** High demand. The registry already marks `oneof` fields; the
-  codec rejects them at encode time today. Plan: encode the set member only,
-  decode to a single present field (and optionally a generated discriminated
-  union in TS). Medium effort — needs codec support + codegen typing.
-- 🔜 **`map<K,V>`.** Marked in the registry, rejected by the codec today.
-  nanopb models maps as repeated key/value entries; plan is to map them to JS
-  objects (string/number keys) in the codec. Medium effort. Workaround now:
-  `repeated Entry { key; value; }`.
+  codec rejects them at encode time today with a clear message. **Deliberately
+  not rushed:** nanopb represents a oneof as a C `union` plus a `which_<name>`
+  selector, so encode must set the selector to the chosen member's tag and write
+  only that union member, and decode must read the selector and surface only the
+  present field. That is pointer-precise work in the hot path that **must be
+  proven memory-safe under the ASan/UBSan fuzz harness** (with oneof messages
+  added to the corpus) before shipping. Tracked as the next native item.
+- 🔜 **`map<K,V>`.** Marked in the registry, rejected by the codec today. nanopb
+  models a map as a repeated *synthetic* entry submessage `{ key = 1; value = 2 }`
+  with a map flag; encode/decode must iterate JS object keys ⇄ those entries.
+  Same bar as oneof: implement + fuzz under ASan/UBSan before shipping. Workaround
+  now: model it as `repeated Entry { key; value; }`.
 - 🧭 **`google.protobuf.Struct` / `Value` / `ListValue` / `Any`.** Blocked on
   `map` + `oneof` + recursion. `Struct` ≈ `map<string, Value>`; `Value` is a
   `oneof`. Once map/oneof land, `Struct`/`Value`/`ListValue` map naturally to
@@ -47,62 +72,57 @@ Legend: **✅ done** · **🔜 next** · **🧭 planned** · **🧪 exploring** 
   required / extensions / group fields are a meaningful generator + codec change.
 - 🧭 **Explicit field presence (`optional` in proto3).** Distinguish "unset" from
   "default". Needs nanopb `has_` handling surfaced into the AnyMap shape.
-- 🧪 **Enums as string literals (option).** Today enums map to `number`. A codegen
-  option to emit TS string-literal unions + numeric mapping would improve DX.
+- ✅ **Enums as string literals (option).** `--enums string` — done (1.2.0).
 
 ## Developer experience
 
 - 🔜 **`Uint8Array` for `bytes` via JSI `ArrayBuffer`.** Today `bytes` decodes to
   a base64 `string` or `number[]`; converting a `Uint8Array` to `number[]` is the
-  single most expensive boundary cost we measured (~1.9 ms for 100 KB — see
-  PERFORMANCE.md). Passing an `ArrayBuffer`/`Uint8Array` directly across JSI
-  would remove it. High value. Needs codec + Nitro spec changes.
-- 🧭 **`bigint` option for 64-bit fields.** Today int64/uint64 map to decimal
-  **strings** (precision-safe, universally supported). A per-field or global
-  `bigint` option for runtimes/uses that prefer it.
-- 🧭 **Size inference / warnings.** The generator injects wildcard default field
-  limits (256/256/16). Plan: warn when a payload would exceed a field's
-  `max_length`/`max_size`/`max_count` at codegen or first-use, and optionally
-  infer tighter limits from `.proto` comments/annotations.
-- 🧭 **Strict decode mode.** Optionally error (instead of skip) on unknown
-  fields, and validate enum values are in range.
+  single most expensive boundary cost we measured (~5 ms for 100 KB — see
+  PERFORMANCE.md). **Blocked by a core constraint:** the value crosses JSI inside
+  Nitro's `AnyMap`, whose variant has no `ArrayBuffer` member, so per-field bytes
+  cannot be a `Uint8Array` without an upstream Nitro `AnyMap` change (or a
+  separate non-AnyMap encode path). High value; needs design with the Nitro core.
+- ✅ **`bigint` option for 64-bit fields.** `--bigint` — done (1.2.0).
+- ✅ **Size inference / warnings.** Non-strict codegen warns on default-limit
+  fields — done (1.2.0). (Inferring tighter limits from annotations: still 🧭.)
+- 🧭 **Strict decode mode.** Erroring on unknown fields is **not feasible with
+  nanopb**, which skips unknown fields by design with no public hook; would need
+  a custom decode callback per field. Enum-range validation is feasible separately.
 
 ## Robustness
 
-- 🔜 **Typed error classes.** Today errors are thrown `Error`s with descriptive
-  messages (over-limit, type mismatch, unknown field, unsupported field). Plan:
-  structured error types (`NitroProtobufEncodeError` with field + reason) so
-  callers can branch without string matching.
+- ✅ **Typed error classes.** `ProtobufError` + `ProtobufLimitError` /
+  `ProtobufFieldError` + `classifyProtobufError` — done (1.2.0).
 - 🧭 **Encode validation hardening.** More precise messages and a documented,
   stable set of validation rules (see README error table) covered by tests.
 - 🧪 **Reanimated worklet support.** Calling `encode`/`decode` from a worklet
   thread. Needs the HybridObject to be worklet-installable and thread-safe;
   currently calls are expected on the JS thread. Investigation needed.
-- 🧭 **Interop test suite.** Round-trip against the canonical protobuf
-  implementations (protoc C++, protobuf.js, ts-proto) for every supported field
-  type and the well-known types, in CI, to guarantee wire compatibility.
+- ◑ **Interop test suite.** protobuf.js wire round-trip is in CI (1.2.0).
+  Extending to ts-proto / protoc-C++ and the full WKT matrix is 🧭.
 
 ## Tooling
 
-- 🧭 **Metro plugin / transformer.** Auto-run codegen on `.proto` change inside
-  the Metro pipeline (beyond the current `--watch` + Expo config plugin), so JS
-  consumers get regenerated types without a separate watcher.
+- ✅ **Metro plugin.** `withNitroProtobuf(config, opts)` — done (1.2.0).
 - 🧪 **gRPC companion.** A thin client that pairs this codec with a transport
-  (Connect/gRPC-Web). Out of scope for the core codec; likely a separate package.
-- 🧭 **Better generator diagnostics.** Point at the offending `.proto` line for
-  unsupported constructs and over-limit fields; suggest the `.options` fix.
+  (Connect/gRPC-Web). Out of scope for the core codec; a separate package.
+- ✅ **Better generator diagnostics.** Default-limit warnings — done (1.2.0).
+  (Pointing at the exact `.proto` line for unsupported constructs: still 🧭.)
 
 ## API extras
 
-- 🧭 **`size(message)`** — compute encoded length without allocating the buffer
-  (nanopb supports this natively via `pb_get_encoded_size`).
+- ✅ **`byteLength(message)`** — encoded length without allocating — done (1.2.0).
 - 🧪 **`encodeInto(message, buffer)`** — encode into a caller-provided buffer to
   avoid an allocation. Depends on the JSI `ArrayBuffer` work above.
 - 🧭 **Canonical proto3 JSON.** `toJson` / `fromJson` following the proto3 JSON
   mapping (camelCase, base64 bytes, WKT special-casing), distinct from the JS
-  shape used by `encode`/`decode`.
-- 🧪 **Reflection / descriptors at runtime.** Expose message/field metadata for
-  generic tooling. Lower priority.
+  shape used by `encode`/`decode`. Deferred deliberately: to be useful for
+  interop it must match the spec exactly (camelCase, RFC3339 timestamps,
+  `Duration` "3.5s" form, enum names, 64-bit strings), so a partial version
+  would be worse than none.
+- ✅ **Reflection / descriptors at runtime.** Generated `Message.fields`
+  metadata — done (1.2.0).
 
 ## Maturity
 
