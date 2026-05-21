@@ -2,9 +2,13 @@ name: CI
 
 on:
   push:
-    branches: ['**']
+    branches: [main, develop, 'feature/**', 'release/**', 'hotfix/**']
   pull_request:
+    branches: [develop, main]
   workflow_call: # reused by release.yml as a publish gate
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   lint:

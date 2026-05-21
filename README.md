@@ -267,6 +267,13 @@ One-time setup: add an npm automation token as the `NPM_TOKEN` repository secret
 (Settings → Secrets and variables → Actions) with publish rights to the
 `@klaappinc` scope.
 
+## Contributing
+
+This repo uses **Git Flow**: branch features off `develop` (the default branch)
+and open PRs into `develop`; `main` is production and is released automatically.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full branch model and commit
+conventions.
+
 ## License
 
 MIT © [Klaapp Inc.](https://github.com/KlaappInc)
