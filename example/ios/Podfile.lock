@@ -1909,7 +1909,7 @@ DEPENDENCIES:
   - FBLazyVector (from `../node_modules/react-native/Libraries/FBLazyVector`)
   - hermes-engine (from `../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
   - NitroModules (from `../node_modules/react-native-nitro-modules`)
-  - NitroProtobuf (from `../node_modules/react-native-nitro-protobuf`)
+  - "NitroProtobuf (from `../node_modules/@klaappinc/react-native-nitro-protobuf`)"
   - RCTDeprecation (from `../node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation`)
   - RCTRequired (from `../node_modules/react-native/Libraries/Required`)
   - RCTSwiftUI (from `../node_modules/react-native/ReactApple/RCTSwiftUI`)
@@ -1994,7 +1994,7 @@ EXTERNAL SOURCES:
   NitroModules:
     :path: "../node_modules/react-native-nitro-modules"
   NitroProtobuf:
-    :path: "../node_modules/react-native-nitro-protobuf"
+    :path: "../node_modules/@klaappinc/react-native-nitro-protobuf"
   RCTDeprecation:
     :path: "../node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation"
   RCTRequired:
@@ -2146,7 +2146,7 @@ SPEC CHECKSUMS:
   FBLazyVector: 24e62c765683b8d89006a88a2c8f5cf019f0074d
   hermes-engine: 0f4a760b61ea7a78585c35c1316c26ff097b3db4
   NitroModules: d9e08ab81a7b5f6d16acbbc6ea6091e45ce34a9f
-  NitroProtobuf: 0f1ae71dc620783c60a87c8d342ee430ef08f8fe
+  NitroProtobuf: c667fc267dfa21d727d78e1eb79cbac5084a6e9b
   RCTDeprecation: a4c521821fab57cbb125b36effe84d897d0dfa12
   RCTRequired: 9f3a7e5645d4bc3f551593de7550bb66ab6e42bc
   RCTSwiftUI: 239ed2eb9e73de5a6f518810630f0c95e01c8702

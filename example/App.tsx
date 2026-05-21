@@ -14,9 +14,71 @@ import {
   SafeAreaView,
 } from 'react-native-safe-area-context';
 import { NitroProtobuf } from '@klaappinc/react-native-nitro-protobuf';
+// Generated typed API + well-known types (1.1.0 features under test).
+import {
+  AcmeUser,
+  AcmeSession,
+} from '@klaappinc/react-native-nitro-protobuf/generated/nitro-protobuf';
 import { runBench, formatResults } from './src/bench';
 
 const MESSAGE_NAME = 'acme.User';
+
+type FeatureCheck = { label: string; pass: boolean };
+
+// Exercise the 1.1.0 codegen on-device: the typed per-message API (no magic
+// strings) and the well-known-type mapping (Timestamp<->Date/ISO, Duration<->ms,
+// FieldMask, repeated Timestamp). Returns a pass/fail row per assertion.
+function runFeatureChecks(): FeatureCheck[] {
+  const checks: FeatureCheck[] = [];
+  const push = (label: string, pass: boolean) => checks.push({ label, pass });
+  try {
+    const u = {
+      id: 7,
+      name: 'Ada',
+      active: true,
+      scores: [10, 20],
+      avatar: [1, 2, 3],
+      address: { street: 'Main St', zip: 12345 },
+      delta: '9007199254740993',
+    };
+    const ub = AcmeUser.encode(u);
+    const ud = AcmeUser.decode(ub);
+    push(
+      'typed AcmeUser.encode/decode',
+      ub.byteLength > 0 && ud.id === 7 && ud.name === 'Ada'
+    );
+    push(
+      'typed nested + int64 string',
+      ud.address?.street === 'Main St' && ud.delta === '9007199254740993'
+    );
+
+    const created = new Date('2026-05-21T10:00:00.000Z');
+    const checkpoint = new Date('2026-01-01T00:00:00.000Z');
+    const session = {
+      id: 'evt-1',
+      created_at: created,
+      ttl: 90000,
+      mask: { paths: ['id', 'created_at'] },
+      checkpoints: [checkpoint],
+    };
+    const sb = AcmeSession.encode(session);
+    const sd = AcmeSession.decode(sb);
+    push('WKT Timestamp -> ISO', sd.created_at === '2026-05-21T10:00:00.000Z');
+    push('WKT Duration -> ms', sd.ttl === 90000);
+    push(
+      'WKT FieldMask paths',
+      Array.isArray(sd.mask?.paths) && sd.mask?.paths?.[1] === 'created_at'
+    );
+    push(
+      'WKT repeated Timestamp',
+      Array.isArray(sd.checkpoints) &&
+        sd.checkpoints?.[0] === '2026-01-01T00:00:00.000Z'
+    );
+  } catch (e) {
+    push('exception: ' + (e instanceof Error ? e.message : String(e)), false);
+  }
+  return checks;
+}
 
 const SAMPLE_PAYLOAD = {
   id: 7,
@@ -127,6 +189,7 @@ function App() {
   const [messageName, setMessageName] = useState(MESSAGE_NAME);
   const [payloadText, setPayloadText] = useState(SAMPLE_PAYLOAD_TEXT);
   const [benchStatus, setBenchStatus] = useState('');
+  const [features, setFeatures] = useState<FeatureCheck[]>([]);
   const headerAnim = useRef(new Animated.Value(0)).current;
   const cardAnims = useRef([
     new Animated.Value(0),
@@ -225,6 +288,12 @@ function App() {
   }, [runRoundTrip]);
 
   useEffect(() => {
+    setFeatures(runFeatureChecks());
+  }, []);
+
+  const featuresPass = features.length > 0 && features.every((f) => f.pass);
+
+  useEffect(() => {
     const isTestEnv =
       (globalThis as { __IS_JEST__?: boolean }).__IS_JEST__ === true;
 
@@ -264,6 +333,24 @@ function App() {
           <Animated.View style={[styles.header, fadeUp(headerAnim)]}>
             <Text style={styles.title}>Nitro Protobuf</Text>
             <Text style={styles.subtitle}>Nanopb encode/decode round-trip</Text>
+          </Animated.View>
+
+          <Animated.View style={[fadeUp(headerAnim)]}>
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>
+                1.1.0 features:{' '}
+                {features.length === 0
+                  ? '…'
+                  : featuresPass
+                    ? 'FEATURES_PASS'
+                    : 'FEATURES_FAIL'}
+              </Text>
+              {features.map((f) => (
+                <Text key={f.label} style={styles.meta}>
+                  {f.pass ? '✅' : '❌'} {f.label}
+                </Text>
+              ))}
+            </View>
           </Animated.View>
 
           <Animated.View style={[fadeUp(cardAnims[0])]}>
