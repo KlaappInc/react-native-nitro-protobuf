@@ -9,9 +9,9 @@ All scripts are reproducible - see [Reproducing](#reproducing).
 
 ## TL;DR
 
-- **Raw codec (native C++, `-O2`)**: ~0.4-2.1M encode ops/s, ~0.3-1.0M decode
+- **Raw codec (native C++, `-O2`)**: ~0.5-2.1M encode ops/s, ~0.5-1.3M decode
   ops/s on an M1 Pro. Decode is the heavier side - it builds an `AnyMap`
-  (12-40 heap allocations vs 4-13 for encode).
+  (12-25 heap allocations vs 4-13 for encode).
 - **vs protobuf.js, on-device (Hermes)**: NitroProtobuf **encodes ~2-7× faster**
   and **decodes ~2× faster** for medium/large payloads. protobuf.js decodes
   *tiny* payloads faster (the JSI round-trip outweighs the codec for a handful
@@ -25,8 +25,8 @@ All scripts are reproducible - see [Reproducing](#reproducing).
   time on `AnyMap`/`std::variant` traversal, 64-bit string parsing and
   allocation, not on protobuf encoding. Under Hermes (no JIT) the C++ codec
   wins because that heavy work runs in C++ instead of interpreted JS.
-- **JSI boundary ≈ 3-5 µs/call.** Native encode of the default payload is ~2.0 µs;
-  the same call from JS is ~7.0 µs. For tiny, high-frequency messages the JSI
+- **JSI boundary ≈ 3-4 µs/call.** Native encode of the default payload is ~1.5 µs;
+  the same call from JS is ~5.5 µs. For tiny, high-frequency messages the JSI
   crossing dominates - batch where you can.
 - **The codec was then optimized** (see below): decode is now **34-43 % faster**
   natively and **~40 % faster on device**, with ~30 % fewer allocations. A
@@ -34,7 +34,7 @@ All scripts are reproducible - see [Reproducing](#reproducing).
   (no consistent win).
 - **Size sweep (1-50 KB) + the `bytes` boundary tax.** Encode/decode scale ~linearly
   with size. The biggest *hidden* cost is converting a `Uint8Array` to the
-  `number[]` the codec uses for `bytes` (~5 ms at 100 KB) - use the **base64**
+  `number[]` the codec uses for `bytes` (~1.8 ms at 100 KB) - use the **base64**
   form instead (~10-50× cheaper). A single message is capped at **64 KB** by
   nanopb's default build. See [Size sweep & boundary cost](#size-sweep--boundary-cost-honest-larger-payloads).
 
@@ -107,6 +107,10 @@ be per-message typed-struct codegen (a protobuf.js-style generated C++ codec).
 | iOS | iPhone 17 Pro simulator |
 | Android | android-35 arm64 emulator (runs natively on the M1 host) |
 
+Host (§1, §2, size sweep, base64) and iOS on-device numbers were re-measured in a
+single quiet run with Spotlight (`mds`) indexing disabled, so the small-payload
+and size-sweep tables are directly comparable.
+
 ## Methodology
 
 - **Message**: `acme.User` (`example/proto/example.proto`) - covers scalars,
@@ -137,14 +141,14 @@ median-of-trials throughput; allocs is heap allocations per op.
 
 | profile | bytes | encode ns/op | encode ops/s | enc p99 | decode ns/op | decode ops/s | dec p99 | allocs e/d |
 |---------|------:|------:|------:|----:|------:|------:|----:|:--:|
-| tiny     |   2 |  465 | 2.15M |  500 |  991 | 1.01M | 1084 | 4/12 |
-| scalars  |  36 | 1036 | 0.97M | 1084 | 1206 | 0.83M | 1291 | 4/12 |
-| string   | 108 |  955 | 1.05M | 1083 | 1464 | 0.68M | 1542 | 6/18 |
-| bytes    |  36 |  624 | 1.60M |  708 | 1242 | 0.81M | 1333 | 5/14 |
-| repeated |  24 | 1071 | 0.93M | 1208 | 1767 | 0.57M | 1958 | 6/20 |
-| nested   |  16 | 1278 | 0.78M | 2125 | 1650 | 0.61M | 1667 | 7/24 |
-| default  |  70 | 2005 | 0.50M | 2041 | 2434 | 0.41M | 2458 | 10/32 |
-| large    | 267 | 2558 | 0.39M | 2708 | 3224 | 0.31M | 3208 | 13/40 |
+| tiny     |   2 |  479 | 2.09M |  583 |  788 | 1.27M |  875 | 4/12 |
+| scalars  |  36 |  837 | 1.19M |  958 |  980 | 1.02M | 1125 | 4/12 |
+| string   | 108 |  899 | 1.11M | 1000 | 1040 | 0.96M | 1208 | 6/15 |
+| bytes    |  36 |  600 | 1.67M |  667 |  917 | 1.09M | 1041 | 5/13 |
+| repeated |  24 |  904 | 1.11M | 1041 | 1174 | 0.85M | 1292 | 6/16 |
+| nested   |  16 |  840 | 1.19M |  917 | 1061 | 0.94M | 1167 | 7/18 |
+| default  |  70 | 1509 | 0.66M | 1667 | 1517 | 0.66M | 1667 | 10/22 |
+| large    | 267 | 1974 | 0.51M | 2209 | 1893 | 0.53M | 2042 | 13/25 |
 
 Decode is consistently slower and allocates 2-3× more than encode: it
 constructs an `AnyMap` (`std::unordered_map` + `std::variant`, nested objects
@@ -156,14 +160,14 @@ ns/op (median-of-trials). Sizes match the nanopb encoder exactly.
 
 | profile | pbB | jsonB | pb enc | pb dec | json enc | json dec | pb/json size |
 |---------|----:|------:|------:|------:|------:|------:|:--:|
-| tiny     |   2 |   8 |  128 |  42 |  83 | 147 | 0.25× |
-| scalars  |  36 | 103 |  579 | 182 | 386 | 404 | 0.35× |
-| string   | 108 | 135 |  906 | 429 | 298 | 405 | 0.80× |
-| bytes    |  36 | 105 |  274 |  88 | 280 | 607 | 0.34× |
-| repeated |  24 |  68 |  669 | 414 | 279 | 434 | 0.35× |
-| nested   |  16 |  51 |  503 | 144 | 206 | 414 | 0.31× |
-| default  |  70 | 210 | 1480 | 621 | 723 | 997 | 0.33× |
-| large    | 267 | 501 | 2408 | 834 | 1270 | 1635 | 0.53× |
+| tiny     |   2 |   8 |   99 |  28 |  64 | 110 | 0.25× |
+| scalars  |  36 | 103 |  429 | 135 | 289 | 303 | 0.35× |
+| string   | 108 | 135 |  652 | 320 | 225 | 308 | 0.80× |
+| bytes    |  36 | 105 |  205 |  64 | 211 | 438 | 0.34× |
+| repeated |  24 |  68 |  491 | 282 | 202 | 327 | 0.35× |
+| nested   |  16 |  51 |  373 | 110 | 153 | 297 | 0.31× |
+| default  |  70 | 210 | 1077 | 454 | 542 | 728 | 0.33× |
+| large    | 267 | 501 | 1754 | 614 | 935 | 1192 | 0.53× |
 
 On V8, protobuf.js (JIT-compiled, plain-object codec) **outruns the native C++
 codec** for this workload - confirming the codec is bottlenecked on AnyMap
@@ -182,32 +186,31 @@ real app pays at the JS boundary** for `bytes`.
 > (`PB_FIELD_32BIT` off). A 100 KB message will not compile without that flag, so
 > we benchmark within the limit the library actually enforces (see ROADMAP).
 
-These were measured back-to-back; the **absolute ns run higher** than §1-§2
-(warmer machine), so read this for **scaling behaviour and ratios**, not against
-the small-payload tables. Large payloads run proportionally fewer iterations.
+Same single quiet run as §1-§2, so these are directly comparable. Large payloads
+run proportionally fewer iterations (bounded total work).
 
 **Native C++ codec (`-O2`, M1 Pro):**
 
 | profile | bytes | encode ns/op | decode ns/op | allocs e/d |
 |---------|------:|------:|------:|:--:|
-| blob1k  |  1 124 |   9 685 |  10 025 | 32/32 |
-| blob10k | 10 124 |  18 901 |  25 141 | 32/32 |
-| blob50k | 50 126 |  71 991 | 104 495 | 32/32 |
+| blob1k  |  1 124 |   4 824 |   5 066 | 32/32 |
+| blob10k | 10 124 |  12 420 |  19 068 | 32/32 |
+| blob50k | 50 126 |  56 517 |  68 912 | 32/32 |
 
-Encode/decode scale roughly linearly with size (≈1.4 ns/byte encode, ≈2 ns/byte
-decode at 50 KB), and allocation count is now flat - the per-field cost amortizes
+Encode/decode scale roughly linearly with size (≈1.1 ns/byte encode, ≈1.4 ns/byte
+decode at 50 KB), and allocation count is flat - the per-field cost amortizes
 into the bulk string/array copy.
 
 **protobuf.js vs JSON (node / V8):**
 
 | profile | pbB | jsonB | pb enc | pb dec | json enc | json dec | pb/json |
 |---------|----:|------:|------:|------:|------:|------:|:--:|
-| blob1k  |  1 126 |   2 179 |  1 584 | 1 549 |   5 966 |   8 895 | 0.52× |
-| blob10k | 10 126 |  20 439 |  7 038 | 2 392 |  52 528 |  71 197 | 0.50× |
-| blob50k | 50 128 | 101 577 | 28 494 | 3 673 | 222 997 | 381 548 | 0.49× |
+| blob1k  |  1 126 |   2 179 |  1 419 |   776 |   2 678 |   3 746 | 0.52× |
+| blob10k | 10 126 |  20 439 |  2 886 | 1 006 |  23 514 |  28 701 | 0.50× |
+| blob50k | 50 128 | 101 577 |  9 361 | 1 828 | 113 531 | 161 534 | 0.49× |
 
 At these sizes protobuf is **~2× smaller** than JSON and protobuf.js **decode
-pulls clearly ahead** of JSON (3.7 µs vs 382 µs at 50 KB - JSON re-parses the
+pulls clearly ahead** of JSON (1.8 µs vs 162 µs at 50 KB - JSON re-parses the
 whole text, protobuf.js skips fields it can). Encode favours protobuf too.
 
 **Boundary conversion cost (the `bytes` tax).** The codec returns `bytes` as a
@@ -217,13 +220,13 @@ Native needs a base64 polyfill, so its base64 paths cost more):
 
 | bytes | `Uint8Array`→base64 | base64→`Uint8Array` | `Uint8Array`→`number[]` | `number[]`→`Uint8Array` |
 |------:|------:|------:|------:|------:|
-|    256 |     604 |     352 |    10 757 |     891 |
-|  1 024 |   1 198 |     807 |   104 923 |   2 181 |
-| 10 240 |  11 062 |  11 286 |   313 151 |  20 130 |
-|102 400 | 253 734 |  99 286 | 5 499 357 | 136 081 |
+|    256 |     165 |     136 |     3 750 |     362 |
+|  1 024 |     305 |     281 |    15 189 |     794 |
+| 10 240 |   2 353 |   1 901 |   145 405 |   6 881 |
+|102 400 |  42 161 |  15 335 | 1 772 319 |  58 060 |
 
 The headline: **`Uint8Array`→`number[]` is by far the most expensive path**
-(~5.5 ms for 100 KB - it allocates a JS array of boxed numbers), an order of
+(~1.8 ms for 100 KB - it allocates a JS array of boxed numbers), an order of
 magnitude slower than base64 and capable of dwarfing the encode/decode itself.
 **For binary-heavy messages, use the base64 string form, not `number[]`.** This
 boundary cost is exactly why first-class `Uint8Array`/`ArrayBuffer` support for
@@ -238,14 +241,14 @@ ops/sec in **millions**. `n`=NitroProtobuf (C++/JSI), `p`=protobuf.js (JS),
 
 | profile | pbB/jsB | enc n | enc p | enc j | dec n | dec p | dec j |
 |---------|:------:|----:|----:|----:|----:|----:|----:|
-| tiny     |   2/8  | 0.687 | 0.355 | 3.171 | 0.362 | 1.317 | 4.788 |
-| scalars  | 36/103 | 0.315 | 0.114 | 0.671 | 0.329 | 0.203 | 1.090 |
-| string   |108/135 | 0.309 | 0.045 | 0.722 | 0.261 | 0.162 | 0.980 |
-| bytes    | 36/105 | 0.295 | 0.248 | 0.640 | 0.327 | 0.780 | 0.415 |
-| repeated | 24/68  | 0.284 | 0.090 | 0.892 | 0.206 | 0.177 | 0.814 |
-| nested   | 16/51  | 0.316 | 0.146 | 1.296 | 0.255 | 0.355 | 1.705 |
-| default  | 70/210 | 0.143 | 0.051 | 0.345 | 0.181 | 0.096 | 0.437 |
-| large    |267/501 | 0.097 | 0.021 | 0.140 | 0.145 | 0.057 | 0.169 |
+| tiny     |   2/8  | 0.759 | 0.456 | 3.986 | 0.453 | 1.693 | 6.138 |
+| scalars  | 36/103 | 0.386 | 0.149 | 0.870 | 0.415 | 0.263 | 1.414 |
+| string   |108/135 | 0.381 | 0.058 | 0.930 | 0.342 | 0.207 | 1.262 |
+| bytes    | 36/105 | 0.345 | 0.321 | 0.537 | 0.415 | 0.823 | 0.537 |
+| repeated | 24/68  | 0.352 | 0.117 | 1.148 | 0.270 | 0.229 | 1.049 |
+| nested   | 16/51  | 0.378 | 0.190 | 1.694 | 0.341 | 0.461 | 2.226 |
+| default  | 70/210 | 0.180 | 0.067 | 0.454 | 0.251 | 0.124 | 0.581 |
+| large    |267/501 | 0.126 | 0.028 | 0.181 | 0.207 | 0.073 | 0.218 |
 
 ### Android - android-35 arm64 emulator
 
@@ -261,29 +264,31 @@ ops/sec in **millions**. `n`=NitroProtobuf (C++/JSI), `p`=protobuf.js (JS),
 | large    |267/501 | 0.091 | 0.028 | 0.138 | 0.129 | 0.064 | 0.189 |
 
 iOS and Android track closely (the emulator runs arm64 + Hermes natively on the
-M1 host).
+M1 host). The host and iOS numbers were freshly re-measured for this revision
+(quiet machine, Spotlight indexing disabled); the Android column is retained from
+the prior Release emulator run (not re-run this pass) and is consistent with it.
 
 ## Analysis
 
 **NitroProtobuf vs protobuf.js (the like-for-like comparison).** Under Hermes,
-NitroProtobuf encodes **2-7× faster** (`default` 0.143 vs 0.051 M/s = 2.8×;
-`string` 0.309 vs 0.045 = 6.9×; `large` 0.097 vs 0.021 = 4.6× on iOS). Decode is
-**~2× faster** for medium/large payloads (`default` 0.181 vs 0.096; `large`
-0.145 vs 0.057) but **slower for tiny/bytes** (`tiny` 0.362 vs 1.317) - when the
+NitroProtobuf encodes **2-7× faster** (`default` 0.180 vs 0.067 M/s = 2.7×;
+`string` 0.381 vs 0.058 = 6.6×; `large` 0.126 vs 0.028 = 4.5× on iOS). Decode is
+**~2× faster** for medium/large payloads (`default` 0.251 vs 0.124; `large`
+0.207 vs 0.073) but **slower for tiny/bytes** (`tiny` 0.453 vs 1.693) - when the
 payload is a few bytes, the fixed JSI crossing costs more than protobuf.js's
 interpreted-but-in-runtime decode. Net: NitroProtobuf is the clear win for
 encode and for non-trivial decode; protobuf.js only edges it on the smallest
 decodes.
 
 **vs JSON.** Hermes ships a highly optimized native `JSON`. On pure CPU it beats
-both protobuf codecs almost everywhere (`default` encode: JSON 0.345 vs nitro
-0.143 vs pbjs 0.051 M/s). Protobuf's payoff is **size**: ~3× smaller on the wire
+both protobuf codecs almost everywhere (`default` encode: JSON 0.454 vs nitro
+0.180 vs pbjs 0.067 M/s). Protobuf's payoff is **size**: ~3× smaller on the wire
 (`default` 70 B vs 210 B; `tiny` 2 B vs 8 B). Reach for protobuf when you pay for
 bytes (network, persistence, IPC); stay on JSON when you do not.
 
-**JSI overhead.** Native `default` encode is ~2.0 µs (0.50 M/s); from JS it is
-~7.0 µs (0.143 M/s) - the Hermes↔C++ JSI crossing + ArrayBuffer/AnyMap
-marshalling adds **~5 µs/encode** and **~3 µs/decode**. This fixed cost is why
+**JSI overhead.** Native `default` encode is ~1.5 µs (0.66 M/s); from JS it is
+~5.5 µs (0.180 M/s) - the Hermes↔C++ JSI crossing + ArrayBuffer/AnyMap
+marshalling adds **~4 µs/encode** and **~2.5 µs/decode**. This fixed cost is why
 `tiny` doesn't encode proportionally faster than `default`, and why batching
 many small messages into one call beats many tiny calls.
 
