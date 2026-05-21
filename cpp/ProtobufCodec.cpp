@@ -4,6 +4,7 @@
 #include "nanopb/pb_common.h"
 #include "nanopb/pb_decode.h"
 #include "nanopb/pb_encode.h"
+#include <cctype>
 #include <cstddef>
 #include <cstring>
 #include <stdexcept>
@@ -13,6 +14,51 @@ namespace margelo::nitro::nitroprotobuf {
 using AnyObject = std::unordered_map<std::string, AnyValue>;
 
 namespace {
+
+// Parse a numeric string fully: no leftover (non-space) chars, no exception
+// leak, range-checked. Returns false on any failure so callers keep their
+// bool-return contract instead of letting an STL exception escape.
+bool parseFullDouble(const std::string& s, double& out) {
+  try {
+    size_t pos = 0;
+    double v = std::stod(s, &pos);
+    while (pos < s.size() && std::isspace(static_cast<unsigned char>(s[pos]))) pos++;
+    if (pos != s.size()) return false;
+    out = v;
+    return true;
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+bool parseFullInt64(const std::string& s, int64_t& out) {
+  try {
+    size_t pos = 0;
+    long long v = std::stoll(s, &pos);
+    while (pos < s.size() && std::isspace(static_cast<unsigned char>(s[pos]))) pos++;
+    if (pos != s.size()) return false;
+    out = static_cast<int64_t>(v);
+    return true;
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+bool parseFullUInt64(const std::string& s, uint64_t& out) {
+  try {
+    size_t lead = 0;
+    while (lead < s.size() && std::isspace(static_cast<unsigned char>(s[lead]))) lead++;
+    if (lead < s.size() && s[lead] == '-') return false; // stoull wraps negatives
+    size_t pos = 0;
+    unsigned long long v = std::stoull(s, &pos);
+    while (pos < s.size() && std::isspace(static_cast<unsigned char>(s[pos]))) pos++;
+    if (pos != s.size()) return false;
+    out = static_cast<uint64_t>(v);
+    return true;
+  } catch (const std::exception&) {
+    return false;
+  }
+}
 
 std::string toFieldPath(const MessageInfo& message, const FieldInfo& field) {
   return std::string(message.name) + "." + field.name;
@@ -55,8 +101,7 @@ bool getDoubleValue(const AnyValue& value, double& out) {
     return true;
   }
   if (const auto* v = std::get_if<std::string>(&value)) {
-    out = std::stod(*v);
-    return true;
+    return parseFullDouble(*v, out);
   }
   return false;
 }
@@ -71,8 +116,7 @@ bool getInt64Value(const AnyValue& value, int64_t& out) {
     return true;
   }
   if (const auto* v = std::get_if<std::string>(&value)) {
-    out = std::stoll(*v);
-    return true;
+    return parseFullInt64(*v, out);
   }
   return false;
 }
@@ -89,8 +133,7 @@ bool getUInt64Value(const AnyValue& value, uint64_t& out) {
     return true;
   }
   if (const auto* v = std::get_if<std::string>(&value)) {
-    out = std::stoull(*v);
-    return true;
+    return parseFullUInt64(*v, out);
   }
   return false;
 }
@@ -128,7 +171,11 @@ std::vector<uint8_t> getBytesValue(const AnyValue& value) {
     bytes.reserve(v->size());
     for (const auto& item : *v) {
       double number = 0;
-      if (!getDoubleValue(item, number)) {
+      if (const auto* d = std::get_if<double>(&item)) {
+        number = *d;
+      } else if (const auto* i = std::get_if<int64_t>(&item)) {
+        number = static_cast<double>(*i);
+      } else {
         throw std::runtime_error("Byte array elements must be numbers");
       }
       if (number < 0 || number > 255) {
@@ -158,7 +205,8 @@ void setStringValue(void* dest, size_t capacity, const std::string& value) {
     throw std::runtime_error("String field has zero capacity");
   }
   if (value.size() >= capacity) {
-    throw std::runtime_error("String exceeds max_length");
+    throw std::runtime_error("String length " + std::to_string(value.size()) +
+                             " exceeds max_length " + std::to_string(capacity - 1));
   }
   std::memset(dest, 0, capacity);
   std::memcpy(dest, value.data(), value.size());
@@ -168,7 +216,8 @@ void setBytesValue(const pb_field_iter_t& iter, void* dest, const std::vector<ui
   const auto ltype = PB_LTYPE(iter.type);
   if (ltype == PB_LTYPE_FIXED_LENGTH_BYTES) {
     if (bytes.size() > iter.data_size) {
-      throw std::runtime_error("Fixed-length bytes exceed max_size");
+      throw std::runtime_error("Fixed-length bytes size " + std::to_string(bytes.size()) +
+                               " exceeds max_size " + std::to_string(iter.data_size));
     }
     std::memset(dest, 0, iter.data_size);
     std::memcpy(dest, bytes.data(), bytes.size());
@@ -179,10 +228,15 @@ void setBytesValue(const pb_field_iter_t& iter, void* dest, const std::vector<ui
     throw std::runtime_error("Unexpected bytes field type");
   }
 
+  constexpr size_t header = offsetof(pb_bytes_array_t, bytes);
+  if (iter.data_size < header) {
+    throw std::runtime_error("Invalid bytes field layout (data_size < header)");
+  }
   auto* array = reinterpret_cast<pb_bytes_array_t*>(dest);
-  const size_t maxSize = iter.data_size - offsetof(pb_bytes_array_t, bytes);
+  const size_t maxSize = iter.data_size - header;
   if (bytes.size() > maxSize) {
-    throw std::runtime_error("Bytes exceed max_size");
+    throw std::runtime_error("Bytes size " + std::to_string(bytes.size()) +
+                             " exceeds max_size " + std::to_string(maxSize));
   }
   array->size = static_cast<pb_size_t>(bytes.size());
   if (!bytes.empty()) {
@@ -193,7 +247,11 @@ void setBytesValue(const pb_field_iter_t& iter, void* dest, const std::vector<ui
 AnyValue decodeSingleValue(const MessageInfo& messageInfo, const FieldInfo& fieldInfo, const pb_field_iter_t& iter, size_t index);
 
 void populateMessage(const MessageInfo& info, void* message, const AnyObject& object) {
+  // Initialize the field iterator once; pb_field_iter_find wraps from the
+  // current position, so it can be reused across entries instead of
+  // re-running pb_field_iter_begin for every key.
   pb_field_iter_t iter{};
+  const bool iterReady = pb_field_iter_begin(&iter, info.descriptor, message);
   for (const auto& entry : object) {
     if (isNullValue(entry.second)) {
       continue;
@@ -202,7 +260,7 @@ void populateMessage(const MessageInfo& info, void* message, const AnyObject& ob
     if (fieldInfo == nullptr) {
       throw std::runtime_error("Unknown field: " + std::string(entry.first));
     }
-    if (!pb_field_iter_begin(&iter, info.descriptor, message) || !pb_field_iter_find(&iter, fieldInfo->tag)) {
+    if (!iterReady || !pb_field_iter_find(&iter, fieldInfo->tag)) {
       throw std::runtime_error("Failed to find field: " + toFieldPath(info, *fieldInfo));
     }
 
@@ -312,7 +370,9 @@ void populateMessage(const MessageInfo& info, void* message, const AnyObject& ob
             if (nestedInfo == nullptr) {
               throw std::runtime_error("Unknown submessage for field: " + toFieldPath(info, *fieldInfo));
             }
-            nestedInfo->init_default(data);
+            if (nestedInfo->init_default != nullptr) {
+              nestedInfo->init_default(data);
+            }
             populateMessage(*nestedInfo, data, nestedObject);
             break;
           }
@@ -411,7 +471,9 @@ void populateMessage(const MessageInfo& info, void* message, const AnyObject& ob
           if (nestedInfo == nullptr) {
             throw std::runtime_error("Unknown submessage for field: " + toFieldPath(info, *fieldInfo));
           }
-          nestedInfo->init_default(data);
+          if (nestedInfo->init_default != nullptr) {
+            nestedInfo->init_default(data);
+          }
           populateMessage(*nestedInfo, data, nestedObject);
           break;
         }
@@ -446,7 +508,7 @@ AnyValue decodeSingleValue(const MessageInfo& messageInfo, const FieldInfo& fiel
       return AnyValue(readScalar<double>(data));
     case FieldType::String: {
       const auto* str = reinterpret_cast<const char*>(data);
-      return AnyValue(std::string(str));
+      return AnyValue(std::string(str, strnlen(str, iter.data_size)));
     }
     case FieldType::Bytes: {
       const auto ltype = PB_LTYPE(iter.type);
