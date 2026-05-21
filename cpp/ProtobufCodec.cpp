@@ -8,12 +8,34 @@
 #include <cstddef>
 #include <cstring>
 #include <stdexcept>
+#include <string_view>
+#include <unordered_map>
+#include <utility>
 
 namespace margelo::nitro::nitroprotobuf {
 
 using AnyObject = std::unordered_map<std::string, AnyValue>;
 
 namespace {
+
+// O(1) field lookup. findFieldByName (registry) is linear, so populateMessage
+// was O(fields x entries). Build a name -> FieldInfo index once per descriptor.
+// thread_local (no locking): encode/decode are JS-thread-only by contract, and
+// FieldInfo::name has static storage so string_view keys stay valid.
+const FieldInfo* findFieldCached(const MessageInfo& info, const std::string& name) {
+  thread_local std::unordered_map<const pb_msgdesc_s*,
+                                  std::unordered_map<std::string_view, const FieldInfo*>>
+      cache;
+  auto& index = cache[info.descriptor];
+  if (index.empty() && info.field_count > 0) {
+    index.reserve(info.field_count);
+    for (size_t i = 0; i < info.field_count; i++) {
+      index.emplace(std::string_view(info.fields[i].name), &info.fields[i]);
+    }
+  }
+  const auto it = index.find(std::string_view(name));
+  return it != index.end() ? it->second : nullptr;
+}
 
 // Parse a numeric string fully: no leftover (non-space) chars, no exception
 // leak, range-checked. Returns false on any failure so callers keep their
@@ -256,7 +278,7 @@ void populateMessage(const MessageInfo& info, void* message, const AnyObject& ob
     if (isNullValue(entry.second)) {
       continue;
     }
-    const FieldInfo* fieldInfo = findFieldByName(info, entry.first);
+    const FieldInfo* fieldInfo = findFieldCached(info, entry.first);
     if (fieldInfo == nullptr) {
       throw std::runtime_error("Unknown field: " + std::string(entry.first));
     }
@@ -526,16 +548,16 @@ AnyValue decodeSingleValue(const MessageInfo& messageInfo, const FieldInfo& fiel
       if (nestedInfo == nullptr) {
         throw std::runtime_error("Unknown submessage for field: " + toFieldPath(messageInfo, fieldInfo));
       }
-      auto nestedMap = AnyMap::make();
+      auto nestedMap = AnyMap::make(nestedInfo->field_count);
+      auto& nestedOut = nestedMap->getMap();
       pb_field_iter_t nestedIter{};
       if (!pb_field_iter_begin_const(&nestedIter, nestedInfo->descriptor, data)) {
-        return AnyValue(nestedMap->getMap());
+        return AnyValue(std::move(nestedOut));
       }
 
       for (size_t i = 0; i < nestedInfo->field_count; i++) {
         const FieldInfo& nestedField = nestedInfo->fields[i];
-        if (!pb_field_iter_begin_const(&nestedIter, nestedInfo->descriptor, data) ||
-            !pb_field_iter_find(&nestedIter, nestedField.tag)) {
+        if (!pb_field_iter_find(&nestedIter, nestedField.tag)) {
           continue;
         }
         ensureSupportedField(*nestedInfo, nestedField, nestedIter);
@@ -560,12 +582,12 @@ AnyValue decodeSingleValue(const MessageInfo& messageInfo, const FieldInfo& fiel
           for (size_t j = 0; j < count; j++) {
             array.emplace_back(decodeSingleValue(*nestedInfo, nestedField, nestedIter, j));
           }
-          nestedMap->setAny(nestedField.name, AnyValue(array));
+          nestedOut.emplace(nestedField.name, AnyValue(std::move(array)));
         } else {
-          nestedMap->setAny(nestedField.name, decodeSingleValue(*nestedInfo, nestedField, nestedIter, 0));
+          nestedOut.emplace(nestedField.name, decodeSingleValue(*nestedInfo, nestedField, nestedIter, 0));
         }
       }
-      return AnyValue(nestedMap->getMap());
+      return AnyValue(std::move(nestedOut));
     }
   }
   throw std::runtime_error("Unsupported field type");
@@ -573,11 +595,13 @@ AnyValue decodeSingleValue(const MessageInfo& messageInfo, const FieldInfo& fiel
 
 std::shared_ptr<AnyMap> decodeMessageInternal(const MessageInfo& info, const void* message) {
   auto map = AnyMap::make(info.field_count);
+  auto& out = map->getMap();
   pb_field_iter_t iter{};
+  const bool iterReady = pb_field_iter_begin_const(&iter, info.descriptor, message);
 
   for (size_t i = 0; i < info.field_count; i++) {
     const FieldInfo& field = info.fields[i];
-    if (!pb_field_iter_begin_const(&iter, info.descriptor, message) || !pb_field_iter_find(&iter, field.tag)) {
+    if (!iterReady || !pb_field_iter_find(&iter, field.tag)) {
       continue;
     }
     ensureSupportedField(info, field, iter);
@@ -602,29 +626,22 @@ std::shared_ptr<AnyMap> decodeMessageInternal(const MessageInfo& info, const voi
       for (size_t j = 0; j < count; j++) {
         array.emplace_back(decodeSingleValue(info, field, iter, j));
       }
-      map->setAny(field.name, AnyValue(array));
+      out.emplace(field.name, AnyValue(std::move(array)));
     } else {
-      map->setAny(field.name, decodeSingleValue(info, field, iter, 0));
+      out.emplace(field.name, decodeSingleValue(info, field, iter, 0));
     }
   }
 
   return map;
 }
 
-} // namespace
-
-std::shared_ptr<ArrayBuffer> encodeMessage(const MessageInfo& info, const std::shared_ptr<AnyMap>& message) {
-  if (message == nullptr) {
-    throw std::runtime_error("Message object is null");
-  }
-
+std::shared_ptr<ArrayBuffer> encodeFromObject(const MessageInfo& info, const AnyObject& object) {
   std::vector<uint8_t> storage(info.struct_size);
-  std::memset(storage.data(), 0, storage.size());
   if (info.init_default != nullptr) {
     info.init_default(storage.data());
   }
 
-  populateMessage(info, storage.data(), message->getMap());
+  populateMessage(info, storage.data(), object);
 
   size_t encodedSize = 0;
   if (!pb_get_encoded_size(&encodedSize, info.descriptor, storage.data())) {
@@ -642,6 +659,15 @@ std::shared_ptr<ArrayBuffer> encodeMessage(const MessageInfo& info, const std::s
   return ArrayBuffer::move(std::move(output));
 }
 
+} // namespace
+
+std::shared_ptr<ArrayBuffer> encodeMessage(const MessageInfo& info, const std::shared_ptr<AnyMap>& message) {
+  if (message == nullptr) {
+    throw std::runtime_error("Message object is null");
+  }
+  return encodeFromObject(info, message->getMap());
+}
+
 std::shared_ptr<AnyMap> decodeMessage(const MessageInfo& info, const std::shared_ptr<ArrayBuffer>& data) {
   if (data == nullptr) {
     throw std::runtime_error("Data buffer is null");
@@ -651,7 +677,6 @@ std::shared_ptr<AnyMap> decodeMessage(const MessageInfo& info, const std::shared
   }
 
   std::vector<uint8_t> storage(info.struct_size);
-  std::memset(storage.data(), 0, storage.size());
   if (info.init_default != nullptr) {
     info.init_default(storage.data());
   }

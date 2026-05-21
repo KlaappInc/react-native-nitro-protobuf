@@ -28,6 +28,64 @@ All scripts are reproducible — see [Reproducing](#reproducing).
 - **JSI boundary ≈ 3–5 µs/call.** Native encode of the default payload is ~2.0 µs;
   the same call from JS is ~7.0 µs. For tiny, high-frequency messages the JSI
   crossing dominates — batch where you can.
+- **The codec was then optimized** (see below): decode is now **34–43 % faster**
+  natively and **~40 % faster on device**, with ~30 % fewer allocations. A
+  JSON-string-boundary experiment to skip `AnyMap` was measured and **rejected**
+  (no consistent win).
+
+## Optimizations applied
+
+Targeted, behavior-preserving changes to the decode/encode hot paths
+(`cpp/ProtobufCodec.cpp`): hoist the nanopb field iterator out of the per-field
+decode loops (was re-`begin`-ing per field); build the result map by moving
+arrays/objects/nested maps in via `AnyMap::getMap()` instead of copying through
+`setAny`; reserve nested maps; O(1) field lookup (descriptor-keyed cache) instead
+of linear; drop a redundant `memset`.
+
+**Native C++ (`-O2`, M1 Pro) — before → after:**
+
+| profile | decode ns/op | Δ | encode ns/op | Δ | dec allocs |
+|---------|------:|----:|------:|----:|:--:|
+| tiny     |  990 → 643 | −35 % | 465 → 364 | −22 % | 12 → 12 |
+| scalars  | 1206 → 800 | −34 % |1036 → 722 | −30 % | 12 → 12 |
+| string   |1464 → 914 | −38 % | 955 → 751 | −21 % | 18 → 15 |
+| bytes    |1242 → 801 | −36 % | 624 → 485 | −22 % | 14 → 13 |
+| repeated |1767 →1063 | −40 % |1071 → 812 | −24 % | 20 → 16 |
+| nested   |1650 → 960 | −42 % |1278 → 745 | −42 % | 24 → 18 |
+| default  |2434 →1593 | −35 % |2005 →1420 | −29 % | 32 → 22 |
+| large    |3224 →1838 | −43 % |2558 →1908 | −25 % | 40 → 25 |
+
+**On-device (Release, Hermes), default payload — before → after ops/sec:**
+
+| | iOS encode | iOS decode | Android encode | Android decode |
+|--|------:|------:|------:|------:|
+| before | 0.143 M | 0.181 M | 0.124 M | 0.157 M |
+| after  | 0.183 M | 0.256 M | 0.124 M | 0.200 M |
+| Δ | +28 % | **+41 %** | ~flat | +27 % |
+
+All 6 tests stay green, including the ASan/UBSan fuzz harness (no memory-safety
+regression) and the native round-trip. Encoded sizes are unchanged.
+
+### Rejected experiment — AnyMap-bypass via a JSON string boundary
+
+Hypothesis: since Hermes' `JSON` is fast and passing one string across JSI is
+cheap, a `decodeToJson` / `encodeFromJson` pair (C++ emits/consumes JSON text,
+JS does `JSON.parse`/`stringify`) might beat Nitro's `AnyMap` marshalling. We
+implemented it, verified round-trip parity, and A/B-measured it on device:
+
+| | iOS enc n/N | iOS dec n/N | Android enc n/N | Android dec n/N |
+|--|--:|--:|--:|--:|
+| default | 0.183 / 0.165 | 0.256 / 0.270 | 0.124 / 0.153 | 0.200 / 0.266 |
+| large   | 0.126 / 0.081 | 0.209 / 0.130 | 0.071 / 0.063 | 0.127 / 0.121 |
+
+(n = AnyMap path, N = JSON bypass; ops/sec M.) The result is **mixed**: the
+bypass wins some medium-payload cases on Android (default decode +33 %) but
+**loses for large payloads on both platforms and for encode on iOS**, and the
+C++ JSON write/parse is itself CPU-heavy (the `%.17g` float formatting and string
+building cost more than building `AnyMap`). No consistent win → **not adopted**;
+the optimized `AnyMap` path is effectively the floor for this Nitro design. The
+remaining ceiling is the JSI/`AnyMap` boundary itself; the larger follow-up would
+be per-message typed-struct codegen (a protobuf.js-style generated C++ codec).
 
 ## Environment
 
