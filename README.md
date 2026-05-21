@@ -6,22 +6,22 @@
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![powered by nitro](https://img.shields.io/badge/powered%20by-nitro-orange)
 
-Encode and decode protobuf messages in C++ directly over JSI — no bridge, no
+Encode and decode protobuf messages in C++ directly over JSI - no bridge, no
 serialization to JSON in between. You hand it a plain JS object, it returns an
-`ArrayBuffer` (and back). On Hermes it encodes **~2–7× faster than protobuf.js**
+`ArrayBuffer` (and back). On Hermes it encodes **~2-7× faster than protobuf.js**
 and produces payloads **~3× smaller than JSON**. See [PERFORMANCE.md](./PERFORMANCE.md).
 
 ## Features
 
-- ⚡ **Native C++ codec** (nanopb) over JSI — no bridge round-trips.
-- 📦 **Compact wire format** — typically ~3× smaller than JSON.
-- 🔧 **Zero-install code generation** — bundled `protoc`; the nanopb generator is
+- ⚡ **Native C++ codec** (nanopb) over JSI - no bridge round-trips.
+- 📦 **Compact wire format** - typically ~3× smaller than JSON.
+- 🔧 **Zero-install code generation** - bundled `protoc`; the nanopb generator is
   installed automatically on first run. No `brew`/`pip` setup.
-- 🪄 **No hand-written `.options`** — sensible field-size defaults are applied
+- 🪄 **No hand-written `.options`** - sensible field-size defaults are applied
   automatically; override per field or globally only when you want to.
-- 🔒 **Generated TypeScript types** — typed `encode`/`decode` per message.
+- 🔒 **Generated TypeScript types** - typed `encode`/`decode` per message.
 - 📱 **iOS & Android**, New Architecture.
-- 🧩 **Expo config plugin** — regenerates on `expo prebuild`.
+- 🧩 **Expo config plugin** - regenerates on `expo prebuild`.
 
 ## Requirements
 
@@ -86,7 +86,7 @@ const back = decode('acme.User', bytes) // AcmeUser
 into the package's `generated/` directory (compiled by the pod / CMake):
 
 - `*.pb.h` / `*.pb.c` (nanopb) and `nitro_protobuf_registry.cpp`
-- `nitro-protobuf.ts` (to `tsOut`) — typed interfaces plus `encode`/`decode` for
+- `nitro-protobuf.ts` (to `tsOut`) - typed interfaces plus `encode`/`decode` for
   every message
 
 ## Configuration
@@ -103,7 +103,7 @@ Optional `nitro-protobuf.config.json` at your project root (CLI flags override i
 
 The nanopb C sources go to the package's `generated/` (where the pod / CMake
 compile them); the typed `nitro-protobuf.ts` goes to `tsOut`. Set `tsOut` to a
-folder inside your project (e.g. `./generated`) so you can import it directly —
+folder inside your project (e.g. `./generated`) so you can import it directly -
 the examples below assume `./generated/nitro-protobuf`.
 
 ### Field size limits
@@ -125,7 +125,7 @@ acme.User.name max_length: 32
 acme.User.avatar max_size: 1024
 ```
 
-Pass `--strict` to require an explicit option for every field (no defaults) —
+Pass `--strict` to require an explicit option for every field (no defaults) -
 useful for tightly memory-constrained targets.
 
 ### CLI
@@ -174,7 +174,7 @@ const names = NitroProtobuf.listMessages()
 | repeated | array | array |
 
 - 64-bit integers map to **decimal strings** to avoid JS precision loss.
-- `bytes` does **not** accept a `Uint8Array` (rejected at the JSI boundary) — pass
+- `bytes` does **not** accept a `Uint8Array` (rejected at the JSI boundary) - pass
   a base64 string or a `number[]`. This differs from `protobufjs`.
 - Numeric strings must be fully numeric; `"12abc"` and `"1.2.3"` are rejected.
 
@@ -188,9 +188,9 @@ On-device (Hermes, Release), `acme.User` (~70 B payload), throughput in ops/sec:
 | protobuf.js | 0.07 M | 0.12 M | 70 B |
 | JSON | 0.44 M | 0.57 M | 210 B |
 
-vs **protobuf.js**: ~2–7× faster encode, ~2× faster decode (medium/large
+vs **protobuf.js**: ~2-7× faster encode, ~2× faster decode (medium/large
 payloads). vs **JSON**: Hermes' native JSON is faster on raw CPU, but protobuf is
-~3× smaller on the wire — choose it when bytes matter (network, storage, IPC).
+~3× smaller on the wire - choose it when bytes matter (network, storage, IPC).
 Full methodology and per-field-type numbers in [PERFORMANCE.md](./PERFORMANCE.md).
 
 ## Threading
@@ -198,7 +198,7 @@ Full methodology and per-field-type numbers in [PERFORMANCE.md](./PERFORMANCE.md
 `encode` and `decode` are **synchronous JSI calls and must run on the JS thread**
 (the runtime that created the `Protobuf` HybridObject). Calling them from a
 Reanimated worklet, a separate JS runtime, or any other thread is **unsupported
-and undefined behaviour** — the most common cause of hard crashes. To
+and undefined behaviour** - the most common cause of hard crashes. To
 (de)serialize off the main JS thread, marshal the result back first.
 
 ## Limitations
@@ -220,17 +220,17 @@ JS object ◀──▶ Nitro AnyMap ◀──▶ ProtobufCodec (C++) ◀──�
 Your `.proto` is compiled to nanopb static C structures plus a generated registry
 that maps message names to their descriptors. At runtime the codec converts a JS
 object to a Nitro `AnyMap`, walks the registry to populate the nanopb struct, and
-encodes it — and the reverse for decode.
+encodes it - and the reverse for decode.
 
 ## Troubleshooting
 
-- **Android: "HybridObject 'Protobuf' has not been registered"** — rebuild the
+- **Android: "HybridObject 'Protobuf' has not been registered"** - rebuild the
   app after installing/upgrading (the native library is loaded at startup).
-- **`python3 not found` during `proto:generate`** — install python3, or pass
+- **`python3 not found` during `proto:generate`** - install python3, or pass
   `--nanopb <path to protoc-gen-nanopb>` to use your own generator.
-- **A field is missing after decode** — regenerate (`npm run proto:generate`)
+- **A field is missing after decode** - regenerate (`npm run proto:generate`)
   after changing `.proto` files, then rebuild.
-- **"Bytes fields must be base64 strings or number arrays"** — don't pass a
+- **"Bytes fields must be base64 strings or number arrays"** - don't pass a
   `Uint8Array`; see the value-mapping table.
 
 ## Development

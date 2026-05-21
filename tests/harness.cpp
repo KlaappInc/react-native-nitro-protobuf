@@ -38,7 +38,7 @@ static void expectThrow(const char* label, const std::function<void()>& fn) {
   }
 }
 
-// Expect fn() to either succeed or throw std::exception — never crash/UB.
+// Expect fn() to either succeed or throw std::exception - never crash/UB.
 // (ASan/UBSan will abort the process if it touches bad memory.)
 static void expectNoCrash(const char* label, const std::function<void()>& fn) {
   try { fn(); g_ok++; }
@@ -95,7 +95,7 @@ int main() {
     ok(std::get<std::string>(oa.at("street"))=="Main St", "rt addr.street");
   }
 
-  // ---------- 2. Integer boundary values (fresh map each — avoid emplace no-overwrite) ----------
+  // ---------- 2. Integer boundary values (fresh map each - avoid emplace no-overwrite) ----------
   {
     auto m1 = baseUser(); m1->setString("delta", "9223372036854775807");   // INT64_MAX
     ok(decodeMessage(*user, encodeMessage(*user, m1))->getString("delta")=="9223372036854775807", "int64 max");
@@ -152,7 +152,7 @@ int main() {
   // ---------- 9. NULL values are skipped ----------
   expectNoCrash("null name skipped", [&]{ auto m=baseUser(); m->setNull("name"); auto b=encodeMessage(*user,m); decodeMessage(*user,b); });
 
-  // ---------- 10. DECODE FUZZ — the crash-suspect path ----------
+  // ---------- 10. DECODE FUZZ - the crash-suspect path ----------
   // 10a. truncated valid buffer at every prefix length
   {
     auto m = baseUser();
