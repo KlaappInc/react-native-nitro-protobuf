@@ -565,12 +565,9 @@ function generateTypes(messages, opts = {}) {
   // Enums referenced by a field, collected for the string<->number maps.
   const enums = new Map() // fullName -> { name->id }
   const enumKey = (en) => cleanName(en.fullName).replace(/\./g, '_')
-  // Conversion kind for a field:
+  // The conversion kind of a field's VALUE type (ignoring map/repeated):
   //   ts/dur (WKT), i64 (bigint), e:<EnumKey> (enum strings), <message name>.
-  const fieldKind = (field) => {
-    // map<> values are not run through the inline scalar conversions (the
-    // transform handles object fields + arrays, not Record values).
-    if (field.map) return null
+  const baseKind = (field) => {
     if (field.resolvedType instanceof protobuf.Enum) {
       if (!opts.enumsAsStrings) return null
       enums.set(field.resolvedType.fullName, field.resolvedType.values)
@@ -585,8 +582,7 @@ function generateTypes(messages, opts = {}) {
     if (opts.bigint && I64_TYPES.has(field.type)) return 'i64'
     return null
   }
-  // A scalar conversion (not a nested-message name) applies inline.
-  const isScalarKind = (k) =>
+  const isScalarConv = (k) =>
     k === 'ts' || k === 'dur' || k === 'i64' || (k && k.startsWith('e:'))
   const convCache = new Map()
   const needsConv = (name, stack = new Set()) => {
@@ -597,12 +593,12 @@ function generateTypes(messages, opts = {}) {
     let res = false
     if (m) {
       for (const f of m.fieldsArray) {
-        const k = fieldKind(f)
-        if (isScalarKind(k)) {
+        const bk = baseKind(f) // map/repeated share the value's conversion
+        if (isScalarConv(bk)) {
           res = true
           break
         }
-        if (k && byName.has(k) && needsConv(k, stack)) {
+        if (bk && byName.has(bk) && needsConv(bk, stack)) {
           res = true
           break
         }
@@ -611,6 +607,19 @@ function generateTypes(messages, opts = {}) {
     convCache.set(name, res)
     return res
   }
+  // Spec kind actually stored for a field: scalar inline, m:<kind> for a map
+  // whose values need conversion, or a nested-message name.
+  const fieldKind = (field) => {
+    const bk = baseKind(field)
+    if (bk == null) return null
+    if (field.map) {
+      if (isScalarConv(bk)) return `m:${bk}`
+      return byName.has(bk) && needsConv(bk) ? `m:${bk}` : null
+    }
+    return bk
+  }
+  // A kind applied inline by the runtime (not a bare nested-message name).
+  const isScalarKind = (k) => isScalarConv(k) || (k && k.startsWith('m:'))
   const specFor = (name) => {
     const m = byName.get(name)
     const spec = {}
@@ -676,6 +685,12 @@ function generateTypes(messages, opts = {}) {
     '  if (kind === "dur") return _toDuration(v)',
     '  if (kind === "i64") return String(v)',
     '  if (kind.slice(0, 2) === "e:") return _enums[kind.slice(2)].e[v] ?? v',
+    '  if (kind.slice(0, 2) === "m:") {',
+    '    const vk = kind.slice(2)',
+    '    const o: any = {}',
+    '    for (const k in v) o[k] = _enc1(vk, v[k])',
+    '    return o',
+    '  }',
     '  return _encodeShape(kind, v)',
     '}',
     'function _dec1(kind: string, v: any): any {',
@@ -684,6 +699,12 @@ function generateTypes(messages, opts = {}) {
     '  if (kind === "dur") return _fromDuration(v)',
     '  if (kind === "i64") return BigInt(v)',
     '  if (kind.slice(0, 2) === "e:") return _enums[kind.slice(2)].d[v] ?? v',
+    '  if (kind.slice(0, 2) === "m:") {',
+    '    const vk = kind.slice(2)',
+    '    const o: any = {}',
+    '    for (const k in v) o[k] = _dec1(vk, v[k])',
+    '    return o',
+    '  }',
     '  return _decodeShape(kind, v)',
     '}',
     'function _encodeShape(name: string, m: any): any {',
