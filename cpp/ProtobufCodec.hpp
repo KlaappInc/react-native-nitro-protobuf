@@ -1,7 +1,7 @@
 #pragma once
 
-#include "ArrayBuffer.hpp"
-#include "AnyMap.hpp"
+#include <NitroModules/ArrayBuffer.hpp>
+#include <NitroModules/AnyMap.hpp>
 #include "ProtobufRegistry.hpp"
 #include <memory>
 
