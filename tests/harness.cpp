@@ -177,6 +177,10 @@ int main() {
       size_t len = rng()%128;
       std::vector<uint8_t> g(len);
       for (auto& b: g) b = (uint8_t)byte(rng);
+      // Empty vector data() is nullptr on libstdc++; ArrayBuffer::copy would then
+      // memcpy(dst, nullptr, 0) (benign, but UBSan flags the NON_NULL violation).
+      // Reserve so data() is non-null while size stays 0.
+      if (g.empty()) g.reserve(1);
       auto ab = ArrayBuffer::copy(g.data(), g.size());
       expectNoCrash("decode random garbage", [&]{ decodeMessage(*user, ab); });
       expectNoCrash("decode random garbage (Address)", [&]{ if(addr) decodeMessage(*addr, ab); });
