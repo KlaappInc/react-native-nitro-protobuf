@@ -321,7 +321,18 @@ test('native round-trip encode/decode', (t) => {
     ...pbSources,
   ]
 
+  // `NitroModules/` shim so the codec's `<NitroModules/...>` includes resolve in
+  // a raw host compile (package ships the flat cpp/core layout; the prefixed
+  // form is provided by iOS pods / Android prefab at build time).
+  const shim = path.join(tmp, 'nm-shim')
+  fs.mkdirSync(shim, { recursive: true })
+  fs.symlinkSync(
+    path.join(repoRoot, 'node_modules', 'react-native-nitro-modules', 'cpp', 'core'),
+    path.join(shim, 'NitroModules')
+  )
+
   const includes = [
+    shim,
     path.join(repoRoot, 'cpp'),
     path.join(repoRoot, 'cpp', 'nanopb'),
     path.join(repoRoot, 'node_modules', 'react-native-nitro-modules', 'cpp', 'core'),
