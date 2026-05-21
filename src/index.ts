@@ -6,3 +6,11 @@ export const NitroProtobuf =
   NitroModules.createHybridObject<ProtobufSpec>('Protobuf')
 
 export type { ProtobufSpec as Protobuf }
+
+export {
+  ProtobufError,
+  ProtobufLimitError,
+  ProtobufFieldError,
+  classifyProtobufError,
+} from './errors'
+export type { ProtobufErrorKind } from './errors'
