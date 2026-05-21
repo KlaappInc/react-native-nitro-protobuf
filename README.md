@@ -254,15 +254,17 @@ CI (`.github/workflows/test.yml`) runs typecheck, build, and the test suite
 
 ## Releasing
 
-Publishing to npm is automated (`.github/workflows/release.yml`):
+Releases are automated with [Conventional Commits](https://www.conventionalcommits.org)
+and [release-please](https://github.com/googleapis/release-please):
 
-1. Bump `version` in `package.json`.
-2. Tag and push: `git tag vX.Y.Z && git push --tags` (or publish a GitHub Release).
-3. CI runs the full test suite, then publishes `@klaappinc/react-native-nitro-protobuf`
-   to npm. The tag must match `package.json` (`vX.Y.Z`) or the job fails.
+1. Land changes on `main` using Conventional Commit messages (`feat:`, `fix:`, …).
+2. release-please keeps an open "release" PR that bumps the version and updates
+   `CHANGELOG.md`. Review and merge it when you want to ship.
+3. Merging creates a GitHub Release + tag, which triggers `release.yml` to run the
+   test suite and publish `@klaappinc/react-native-nitro-protobuf` to npm.
 
 One-time setup: add an npm automation token as the `NPM_TOKEN` repository secret
-(Settings → Secrets and variables → Actions), with publish rights to the
+(Settings → Secrets and variables → Actions) with publish rights to the
 `@klaappinc` scope.
 
 ## License
