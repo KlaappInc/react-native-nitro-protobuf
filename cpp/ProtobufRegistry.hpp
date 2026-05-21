@@ -46,6 +46,7 @@ struct MessageInfo {
   const FieldInfo* fields;
   size_t field_count;
   void (*init_default)(void*);
+  bool is_map_entry; // synthetic map<> entry type; hidden from listMessages
 };
 
 const MessageInfo* getMessageInfo(const std::string& name);

@@ -239,10 +239,11 @@ s.ttl // 30000 (ms)
 
 `Timestamp` accepts a `Date` or ISO string and decodes to an ISO string;
 `Duration` is milliseconds. `Struct`, `Value`, `ListValue` and `Any` are **not**
-supported (they need `map` + recursion); see [ROADMAP.md](./ROADMAP.md).
+supported (they need recursive `Value`); see [ROADMAP.md](./ROADMAP.md).
 
 `oneof` is supported: each member is an optional field on the message — set one,
-and only the set member is encoded and surfaced on decode.
+and only the set member is encoded and surfaced on decode. `map<K, V>` is
+supported too — a map field maps to a JS object (`{ [key]: value }`).
 
 ### Runtime helpers
 
@@ -359,7 +360,6 @@ corrupt data. Encode validates against the schema and the field size limits:
 | `repeated` over `max_count` | throws `... exceeds max_count ...` |
 | non-numeric 64-bit string | throws (must be a full decimal integer) |
 | `Uint8Array` for `bytes` | throws (use base64 or `number[]`) |
-| `map` field used | throws (not yet supported - see ROADMAP) |
 | unknown fields on **decode** | skipped (standard proto3 forward-compat) |
 
 Tune the limits per field in `.options` (see [Field size limits](#field-size-limits)).
@@ -369,8 +369,8 @@ Tune the limits per field in `.options` (see [Field size limits](#field-size-lim
 - Only nanopb **static** fields are supported (sized via `.options` / defaults).
 - A single message must stay **under 64 KB** encoded (nanopb default;
   `PB_FIELD_32BIT` would lift it - see ROADMAP).
-- `map`, proto2, and the `Struct`/`Value`/`ListValue`/`Any` well-known types are
-  **not yet supported** (they throw with a clear message). `oneof`, Timestamp,
+- proto2 and the `Struct`/`Value`/`ListValue`/`Any` well-known types are **not
+  yet supported** (they throw with a clear message). `oneof`, `map`, Timestamp,
   Duration, Empty, FieldMask and the scalar wrappers **are** supported.
 - 64-bit integers are represented as decimal strings.
 - `Uint8Array` is not accepted for `bytes` (use base64 or `number[]`).

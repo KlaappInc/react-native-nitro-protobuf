@@ -56,16 +56,18 @@ Legend: **✅ done** · **◑ partial** · **🔜 next** · **🧭 planned** · 
   union member, decode surfaces only the present member. Verified by round-trip
   (string/int/message members) and ~40k adversarial decodes + bit-flips under the
   ASan/UBSan fuzz harness.
-- 🔜 **`map<K,V>`.** Marked in the registry, rejected by the codec today. nanopb
-  models a map as a repeated *synthetic* entry submessage `{ key = 1; value = 2 }`
-  with a map flag; encode/decode must iterate JS object keys ⇄ those entries.
-  Same bar as oneof: implement + fuzz under ASan/UBSan before shipping. Workaround
-  now: model it as `repeated Entry { key; value; }`.
-- 🧭 **`google.protobuf.Struct` / `Value` / `ListValue` / `Any`.** `oneof` now
-  works; still blocked on `map` + recursion. `Struct` ≈ `map<string, Value>`;
-  `Value` is a `oneof` of scalars/Struct/ListValue. Once `map` lands,
-  `Struct`/`Value`/`ListValue` map naturally to plain JS values; `Any` needs a
-  type-URL registry. Larger effort.
+- ✅ **`map<K,V>`** (1.2.0). A map ↔ a JS object (`{ [key]: value }`). The
+  generator synthesizes the registration for nanopb's synthetic entry message
+  (`<Msg>_<Field>Entry { key=1; value=2 }`, which protobuf.js does not model),
+  and the codec encodes/decodes entries via that descriptor; synthetic entry
+  types are hidden from `listMessages()`. Verified by round-trip (scalar +
+  message values) and ~40k adversarial decodes + bit-flips under ASan/UBSan.
+  (Map values that are WKTs are not auto-converted yet — minor follow-up.)
+- 🧭 **`google.protobuf.Struct` / `Value` / `ListValue` / `Any`.** `oneof` + `map`
+  now work; the remaining blocker is **recursion** (`Value` references `Struct`
+  and `ListValue`, which reference `Value`) — nanopb static messages can't be
+  self-recursive. Needs a callback/dynamic strategy. `Any` also needs a type-URL
+  registry.
 - 🧭 **proto2 syntax.** Currently proto3 only. proto2 explicit presence /
   required / extensions / group fields are a meaningful generator + codec change.
 - 🧭 **Explicit field presence (`optional` in proto3).** Distinguish "unset" from

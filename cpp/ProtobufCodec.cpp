@@ -87,9 +87,6 @@ std::string toFieldPath(const MessageInfo& message, const FieldInfo& field) {
 }
 
 void ensureSupportedField(const MessageInfo& message, const FieldInfo& field, const pb_field_iter_t& iter) {
-  if (field.is_map) {
-    throw std::runtime_error("Map fields are not supported: " + toFieldPath(message, field));
-  }
   if (PB_ATYPE(iter.type) != PB_ATYPE_STATIC) {
     throw std::runtime_error("Only static nanopb fields are supported: " + toFieldPath(message, field));
   }
@@ -264,6 +261,10 @@ void setBytesValue(const pb_field_iter_t& iter, void* dest, const std::vector<ui
 }
 
 AnyValue decodeSingleValue(const MessageInfo& messageInfo, const FieldInfo& fieldInfo, const pb_field_iter_t& iter, size_t index);
+void populateMessage(const MessageInfo& info, void* message, const AnyObject& object);
+std::shared_ptr<AnyMap> decodeMessageInternal(const MessageInfo& info, const void* message);
+void populateMapField(const MessageInfo& info, const FieldInfo& fieldInfo, const pb_field_iter_t& iter, const AnyObject& mapObject);
+AnyValue decodeMapField(const MessageInfo& info, const FieldInfo& fieldInfo, const pb_field_iter_t& iter);
 
 void populateMessage(const MessageInfo& info, void* message, const AnyObject& object) {
   // Initialize the field iterator once; pb_field_iter_find wraps from the
@@ -284,6 +285,15 @@ void populateMessage(const MessageInfo& info, void* message, const AnyObject& ob
     }
 
     ensureSupportedField(info, *fieldInfo, iter);
+
+    if (fieldInfo->is_map) {
+      AnyObject mapObject;
+      if (!getObjectValue(entry.second, mapObject)) {
+        throw std::runtime_error("Expected object for map field: " + toFieldPath(info, *fieldInfo));
+      }
+      populateMapField(info, *fieldInfo, iter, mapObject);
+      continue;
+    }
 
     if (fieldInfo->repeated) {
       const auto htype = PB_HTYPE(iter.type);
@@ -507,6 +517,53 @@ void populateMessage(const MessageInfo& info, void* message, const AnyObject& ob
   }
 }
 
+// Encode a proto map<K,V> from a JS object. nanopb models a map as a repeated
+// synthetic entry message {key=1; value=2}; we populate one entry per JS key,
+// reusing populateMessage on the (registered) entry descriptor.
+void populateMapField(const MessageInfo& info, const FieldInfo& fieldInfo, const pb_field_iter_t& iter, const AnyObject& mapObject) {
+  const MessageInfo* entryInfo = getMessageInfo(iter.submsg_desc);
+  if (entryInfo == nullptr) {
+    throw std::runtime_error("Unknown map entry type for field: " + toFieldPath(info, fieldInfo));
+  }
+  const pb_size_t maxCount = iter.array_size;
+  if (mapObject.size() > maxCount) {
+    throw std::runtime_error("Map exceeds max_count for field: " + toFieldPath(info, fieldInfo));
+  }
+  const FieldInfo* keyField = findFieldByName(*entryInfo, "key");
+  pb_size_t count = 0;
+  for (const auto& kv : mapObject) {
+    auto* entryPtr = static_cast<uint8_t*>(iter.pData) + (count * iter.data_size);
+    if (entryInfo->init_default != nullptr) {
+      entryInfo->init_default(entryPtr);
+    }
+    AnyObject entryObj;
+    // JS object keys are strings; integer key fields are parsed from the string
+    // by populateMessage, bool keys are coerced here.
+    if (keyField != nullptr && keyField->type == FieldType::Bool) {
+      entryObj["key"] = AnyValue(kv.first == "true" || kv.first == "1");
+    } else {
+      entryObj["key"] = AnyValue(kv.first);
+    }
+    if (!isNullValue(kv.second)) {
+      entryObj["value"] = kv.second;
+    }
+    populateMessage(*entryInfo, entryPtr, entryObj);
+    count++;
+  }
+  if (iter.pSize != nullptr) {
+    *reinterpret_cast<pb_size_t*>(iter.pSize) = count;
+  }
+}
+
+// Proto map keys are string/intN/bool; JS object keys are strings.
+std::string mapKeyToString(const AnyValue& v) {
+  if (const auto* s = std::get_if<std::string>(&v)) return *s;
+  if (const auto* d = std::get_if<double>(&v)) return std::to_string(static_cast<long long>(*d));
+  if (const auto* b = std::get_if<bool>(&v)) return *b ? "true" : "false";
+  if (const auto* i = std::get_if<int64_t>(&v)) return std::to_string(*i);
+  return std::string();
+}
+
 // Whether a found field is set and should be surfaced on decode:
 //   - SINGULAR (implicit proto3): always (zero/empty is a valid value)
 //   - OPTIONAL (explicit presence): the has-bit
@@ -589,7 +646,9 @@ AnyValue decodeSingleValue(const MessageInfo& messageInfo, const FieldInfo& fiel
           continue;
         }
 
-        if (nestedField.repeated) {
+        if (nestedField.is_map) {
+          nestedOut.emplace(nestedField.name, decodeMapField(*nestedInfo, nestedField, nestedIter));
+        } else if (nestedField.repeated) {
           const pb_size_t count =
               nestedIter.pSize != nullptr ? *reinterpret_cast<const pb_size_t*>(nestedIter.pSize) : nestedIter.array_size;
           AnyArray array;
@@ -625,7 +684,9 @@ std::shared_ptr<AnyMap> decodeMessageInternal(const MessageInfo& info, const voi
       continue;
     }
 
-    if (field.repeated) {
+    if (field.is_map) {
+      out.emplace(field.name, decodeMapField(info, field, iter));
+    } else if (field.repeated) {
       const pb_size_t count = iter.pSize != nullptr ? *reinterpret_cast<const pb_size_t*>(iter.pSize) : iter.array_size;
       AnyArray array;
       array.reserve(count);
@@ -639,6 +700,27 @@ std::shared_ptr<AnyMap> decodeMessageInternal(const MessageInfo& info, const voi
   }
 
   return map;
+}
+
+// Decode a proto map<K,V> to a JS object: one key/value per registered entry.
+AnyValue decodeMapField(const MessageInfo& info, const FieldInfo& fieldInfo, const pb_field_iter_t& iter) {
+  const MessageInfo* entryInfo = getMessageInfo(iter.submsg_desc);
+  if (entryInfo == nullptr) {
+    throw std::runtime_error("Unknown map entry type for field: " + toFieldPath(info, fieldInfo));
+  }
+  const pb_size_t count = iter.pSize != nullptr ? *reinterpret_cast<const pb_size_t*>(iter.pSize) : 0;
+  AnyObject out;
+  out.reserve(count);
+  for (pb_size_t i = 0; i < count; i++) {
+    const auto* entryPtr = static_cast<const uint8_t*>(iter.pData) + (i * iter.data_size);
+    auto entryMap = decodeMessageInternal(*entryInfo, entryPtr);
+    auto& em = entryMap->getMap();
+    const auto keyIt = em.find("key");
+    std::string keyStr = keyIt != em.end() ? mapKeyToString(keyIt->second) : std::string();
+    const auto valIt = em.find("value");
+    out.emplace(std::move(keyStr), valIt != em.end() ? std::move(valIt->second) : AnyValue());
+  }
+  return AnyValue(std::move(out));
 }
 
 std::shared_ptr<ArrayBuffer> encodeFromObject(const MessageInfo& info, const AnyObject& object) {
