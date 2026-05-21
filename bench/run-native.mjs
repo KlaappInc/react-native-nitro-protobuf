@@ -44,23 +44,45 @@ const outDir = path.join(tmp, 'generated')
 // Generate acme protos fresh (self-contained, independent of repo generated/).
 const gen = run(process.execPath, [
   generatorPath,
-  '--protoDir', path.join(repoRoot, 'example', 'proto'),
-  '--outDir', outDir,
-  '--protoc', protoc,
-  '--nanopb', nanopb,
+  '--protoDir',
+  path.join(repoRoot, 'example', 'proto'),
+  '--outDir',
+  outDir,
+  '--protoc',
+  protoc,
+  '--nanopb',
+  nanopb,
 ])
-if (gen.status !== 0) throw new Error(`generate failed:\n${gen.stderr || gen.stdout}`)
+if (gen.status !== 0)
+  throw new Error(`generate failed:\n${gen.stderr || gen.stdout}`)
 
 // `NitroModules/` shim so `<NitroModules/ArrayBuffer.hpp>` resolves on host.
 const shim = path.join(tmp, 'nm-shim')
 fs.mkdirSync(shim, { recursive: true })
 fs.symlinkSync(
-  path.join(repoRoot, 'node_modules', 'react-native-nitro-modules', 'cpp', 'core'),
+  path.join(
+    repoRoot,
+    'node_modules',
+    'react-native-nitro-modules',
+    'cpp',
+    'core'
+  ),
   path.join(shim, 'NitroModules')
 )
 
-const nm = path.join(repoRoot, 'node_modules', 'react-native-nitro-modules', 'cpp')
-const rn = path.join(repoRoot, 'node_modules', 'react-native', 'ReactCommon', 'jsi')
+const nm = path.join(
+  repoRoot,
+  'node_modules',
+  'react-native-nitro-modules',
+  'cpp'
+)
+const rn = path.join(
+  repoRoot,
+  'node_modules',
+  'react-native',
+  'ReactCommon',
+  'jsi'
+)
 const pbSources = fs
   .readdirSync(outDir)
   .filter((n) => n.endsWith('.pb.c'))
@@ -98,13 +120,16 @@ const compile = run(compiler, [
   '-DNDEBUG',
   ...includes.flatMap((d) => ['-I', d]),
   ...sources,
-  '-o', binary,
+  '-o',
+  binary,
 ])
-if (compile.status !== 0) throw new Error(`compile failed:\n${compile.stderr || compile.stdout}`)
+if (compile.status !== 0)
+  throw new Error(`compile failed:\n${compile.stderr || compile.stdout}`)
 
 console.error('Running native bench (warmup + 7 trials/profile) ...')
 const exec = run(binary, [], { maxBuffer: 64 * 1024 * 1024 })
-if (exec.status !== 0) throw new Error(`bench failed:\n${exec.stderr || exec.stdout}`)
+if (exec.status !== 0)
+  throw new Error(`bench failed:\n${exec.stderr || exec.stdout}`)
 
 const results = JSON.parse(exec.stdout)
 const outFile = path.join(__dirname, 'results-native.json')
@@ -113,7 +138,9 @@ fs.writeFileSync(outFile, JSON.stringify(results, null, 2))
 // Pretty table to stderr; raw JSON already saved.
 const pad = (s, n) => String(s).padEnd(n)
 const padL = (s, n) => String(s).padStart(n)
-console.error('\nprofile     bytes   enc ns/op   enc ops/s   enc p99   dec ns/op   dec ops/s   dec p99  alloc(e/d)')
+console.error(
+  '\nprofile     bytes   enc ns/op   enc ops/s   enc p99   dec ns/op   dec ops/s   dec p99  alloc(e/d)'
+)
 for (const r of results) {
   console.error(
     `${pad(r.profile, 10)} ${padL(r.bytes, 5)} ${padL(r.encode.nsop.toFixed(0), 9)} ${padL((r.encode.opsps / 1e6).toFixed(2) + 'M', 11)} ${padL(r.encode.p99.toFixed(0), 8)} ${padL(r.decode.nsop.toFixed(0), 10)} ${padL((r.decode.opsps / 1e6).toFixed(2) + 'M', 11)} ${padL(r.decode.p99.toFixed(0), 8)}   ${r.encode.allocs}/${r.decode.allocs}`

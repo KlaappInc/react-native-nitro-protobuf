@@ -1,0 +1,19 @@
+name: Dependency Review
+
+# Flags vulnerable or disallowed-license dependencies introduced by a PR.
+# Requires the Dependency Graph (free on public repos; private repos need
+# GitHub Advanced Security). If private without GHAS, replace this with an
+# `npm audit --audit-level=high` job.
+on: pull_request
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
