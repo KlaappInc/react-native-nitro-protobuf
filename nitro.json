@@ -14,7 +14,10 @@
   },
   "autolinking": {
     "Protobuf": {
-      "cpp": "HybridProtobuf"
+      "all": {
+        "language": "c++",
+        "implementationClassName": "HybridProtobuf"
+      }
     }
   },
   "ignorePaths": [
