@@ -363,7 +363,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0f172a',
   },
   background: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   orbPrimary: {
     position: 'absolute',
