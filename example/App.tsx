@@ -9,12 +9,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import {
-  SafeAreaProvider,
-  SafeAreaView,
-} from 'react-native-safe-area-context';
-import { NitroProtobuf } from '@klaappinc/react-native-nitro-protobuf';
-// Generated typed API + well-known types (1.1.0 features under test).
+  NitroProtobuf,
+  ProtobufError,
+} from '@klaappinc/react-native-nitro-protobuf';
+// Generated typed API + well-known types (1.1.0/1.2.0 features under test).
 import {
   AcmeUser,
   AcmeSession,
@@ -45,11 +45,11 @@ function runFeatureChecks(): FeatureCheck[] {
     const ud = AcmeUser.decode(ub);
     push(
       'typed AcmeUser.encode/decode',
-      ub.byteLength > 0 && ud.id === 7 && ud.name === 'Ada'
+      ub.byteLength > 0 && ud.id === 7 && ud.name === 'Ada',
     );
     push(
       'typed nested + int64 string',
-      ud.address?.street === 'Main St' && ud.delta === '9007199254740993'
+      ud.address?.street === 'Main St' && ud.delta === '9007199254740993',
     );
 
     const created = new Date('2026-05-21T10:00:00.000Z');
@@ -67,13 +67,31 @@ function runFeatureChecks(): FeatureCheck[] {
     push('WKT Duration -> ms', sd.ttl === 90000);
     push(
       'WKT FieldMask paths',
-      Array.isArray(sd.mask?.paths) && sd.mask?.paths?.[1] === 'created_at'
+      Array.isArray(sd.mask?.paths) && sd.mask?.paths?.[1] === 'created_at',
     );
     push(
       'WKT repeated Timestamp',
       Array.isArray(sd.checkpoints) &&
-        sd.checkpoints?.[0] === '2026-01-01T00:00:00.000Z'
+        sd.checkpoints?.[0] === '2026-01-01T00:00:00.000Z',
     );
+
+    // 1.2.0: byteLength matches encoded size, field reflection, typed errors.
+    push(
+      'byteLength == encoded size',
+      AcmeUser.byteLength(u) === ub.byteLength,
+    );
+    push(
+      'reflection: fields metadata',
+      AcmeUser.fields.length > 0 && AcmeUser.fields[0]?.name === 'id',
+    );
+    let typed = false;
+    try {
+      // Unknown field -> codec throws -> classified to ProtobufError.
+      AcmeUser.encode({ id: 1, nope: 5 } as never);
+    } catch (err) {
+      typed = err instanceof ProtobufError && err.kind === 'unknown-field';
+    }
+    push('typed ProtobufError (unknown-field)', typed);
   } catch (e) {
     push('exception: ' + (e instanceof Error ? e.message : String(e)), false);
   }
@@ -131,7 +149,7 @@ const utf8ByteLength = (text: string) => {
 };
 
 const bytesToHex = (bytes: Uint8Array) => {
-  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0'));
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0'));
   const lines: string[] = [];
   for (let i = 0; i < hex.length; i += 16) {
     lines.push(hex.slice(i, i + 16).join(' '));
@@ -140,7 +158,7 @@ const bytesToHex = (bytes: Uint8Array) => {
 };
 
 const bytesToDecimal = (bytes: Uint8Array) => {
-  const dec = Array.from(bytes, (byte) => byte.toString(10));
+  const dec = Array.from(bytes, byte => byte.toString(10));
   const lines: string[] = [];
   for (let i = 0; i < dec.length; i += 16) {
     lines.push(dec.slice(i, i + 16).join(' '));
@@ -149,7 +167,7 @@ const bytesToDecimal = (bytes: Uint8Array) => {
 };
 
 const bytesToBinary = (bytes: Uint8Array) => {
-  const bin = Array.from(bytes, (byte) => byte.toString(2).padStart(8, '0'));
+  const bin = Array.from(bytes, byte => byte.toString(2).padStart(8, '0'));
   const lines: string[] = [];
   for (let i = 0; i < bin.length; i += 8) {
     lines.push(bin.slice(i, i + 8).join(' '));
@@ -223,7 +241,7 @@ function App() {
       const encodeStart = nowMs();
       const encoded = NitroProtobuf.encode(
         messageName.trim(),
-        parsedPayload as Record<string, unknown>
+        parsedPayload as Record<string, unknown>,
       );
       const encodeMs = nowMs() - encodeStart;
 
@@ -278,7 +296,9 @@ function App() {
         const r = runBench(Platform.OS);
         setBenchStatus('BENCH_DONE\n' + formatResults(r));
       } catch (e) {
-        setBenchStatus('Bench error: ' + (e instanceof Error ? e.message : String(e)));
+        setBenchStatus(
+          'Bench error: ' + (e instanceof Error ? e.message : String(e)),
+        );
       }
     }, 50);
   }, []);
@@ -291,7 +311,7 @@ function App() {
     setFeatures(runFeatureChecks());
   }, []);
 
-  const featuresPass = features.length > 0 && features.every((f) => f.pass);
+  const featuresPass = features.length > 0 && features.every(f => f.pass);
 
   useEffect(() => {
     const isTestEnv =
@@ -299,7 +319,7 @@ function App() {
 
     if (isTestEnv) {
       headerAnim.setValue(1);
-      cardAnims.forEach((anim) => anim.setValue(1));
+      cardAnims.forEach(anim => anim.setValue(1));
       return;
     }
 
@@ -309,12 +329,12 @@ function App() {
         duration: 350,
         useNativeDriver: false,
       }),
-      ...cardAnims.map((anim) =>
+      ...cardAnims.map(anim =>
         Animated.timing(anim, {
           toValue: 1,
           duration: 350,
           useNativeDriver: false,
-        })
+        }),
       ),
     ]);
 
@@ -338,14 +358,14 @@ function App() {
           <Animated.View style={[fadeUp(headerAnim)]}>
             <View style={styles.card}>
               <Text style={styles.cardTitle}>
-                1.1.0 features:{' '}
+                1.2.0 features:{' '}
                 {features.length === 0
                   ? '…'
                   : featuresPass
-                    ? 'FEATURES_PASS'
-                    : 'FEATURES_FAIL'}
+                  ? 'FEATURES_PASS'
+                  : 'FEATURES_FAIL'}
               </Text>
-              {features.map((f) => (
+              {features.map(f => (
                 <Text key={f.label} style={styles.meta}>
                   {f.pass ? '✅' : '❌'} {f.label}
                 </Text>
@@ -425,8 +445,14 @@ function App() {
                 <Text style={styles.meta}>
                   {result.sizeDeltaBytes != null
                     ? result.sizeDeltaBytes >= 0
-                      ? `Savings: +${result.sizeDeltaBytes} bytes (${result.sizeDeltaPercent?.toFixed(1) ?? '-'}%)`
-                      : `Overhead: ${Math.abs(result.sizeDeltaBytes)} bytes (${Math.abs(result.sizeDeltaPercent ?? 0).toFixed(1)}%)`
+                      ? `Savings: +${result.sizeDeltaBytes} bytes (${
+                          result.sizeDeltaPercent?.toFixed(1) ?? '-'
+                        }%)`
+                      : `Overhead: ${Math.abs(
+                          result.sizeDeltaBytes,
+                        )} bytes (${Math.abs(
+                          result.sizeDeltaPercent ?? 0,
+                        ).toFixed(1)}%)`
                     : 'Savings: -'}
                 </Text>
                 <Text style={styles.meta}>
