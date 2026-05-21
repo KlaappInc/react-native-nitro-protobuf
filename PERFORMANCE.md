@@ -5,30 +5,30 @@ Nitro HybridObject) against **protobuf.js** and **JSON**, measured at three
 layers: the raw C++ codec on the host, protobuf.js/JSON on node, and the real
 on-device cost under Hermes on iOS + Android.
 
-All scripts are reproducible — see [Reproducing](#reproducing).
+All scripts are reproducible - see [Reproducing](#reproducing).
 
 ## TL;DR
 
-- **Raw codec (native C++, `-O2`)**: ~0.4–2.1M encode ops/s, ~0.3–1.0M decode
-  ops/s on an M1 Pro. Decode is the heavier side — it builds an `AnyMap`
-  (12–40 heap allocations vs 4–13 for encode).
-- **vs protobuf.js, on-device (Hermes)**: NitroProtobuf **encodes ~2–7× faster**
+- **Raw codec (native C++, `-O2`)**: ~0.4-2.1M encode ops/s, ~0.3-1.0M decode
+  ops/s on an M1 Pro. Decode is the heavier side - it builds an `AnyMap`
+  (12-40 heap allocations vs 4-13 for encode).
+- **vs protobuf.js, on-device (Hermes)**: NitroProtobuf **encodes ~2-7× faster**
   and **decodes ~2× faster** for medium/large payloads. protobuf.js decodes
   *tiny* payloads faster (the JSI round-trip outweighs the codec for a handful
   of bytes).
 - **vs JSON, on-device (Hermes)**: Hermes' native `JSON.stringify/parse` is
   **faster than both** protobuf codecs in raw CPU. Protobuf's win is **wire
-  size** — payloads are typically **~3× smaller** than JSON. Choose protobuf
+  size** - payloads are typically **~3× smaller** than JSON. Choose protobuf
   when bandwidth/storage matters; JSON is fine (and faster) when it does not.
 - **The codec's cost is marshalling, not the wire format.** On host V8,
-  protobuf.js actually beats the native C++ codec — because the codec spends its
+  protobuf.js actually beats the native C++ codec - because the codec spends its
   time on `AnyMap`/`std::variant` traversal, 64-bit string parsing and
   allocation, not on protobuf encoding. Under Hermes (no JIT) the C++ codec
   wins because that heavy work runs in C++ instead of interpreted JS.
-- **JSI boundary ≈ 3–5 µs/call.** Native encode of the default payload is ~2.0 µs;
+- **JSI boundary ≈ 3-5 µs/call.** Native encode of the default payload is ~2.0 µs;
   the same call from JS is ~7.0 µs. For tiny, high-frequency messages the JSI
-  crossing dominates — batch where you can.
-- **The codec was then optimized** (see below): decode is now **34–43 % faster**
+  crossing dominates - batch where you can.
+- **The codec was then optimized** (see below): decode is now **34-43 % faster**
   natively and **~40 % faster on device**, with ~30 % fewer allocations. A
   JSON-string-boundary experiment to skip `AnyMap` was measured and **rejected**
   (no consistent win).
@@ -42,20 +42,20 @@ arrays/objects/nested maps in via `AnyMap::getMap()` instead of copying through
 `setAny`; reserve nested maps; O(1) field lookup (descriptor-keyed cache) instead
 of linear; drop a redundant `memset`.
 
-**Native C++ (`-O2`, M1 Pro) — before → after:**
+**Native C++ (`-O2`, M1 Pro) - before → after:**
 
 | profile | decode ns/op | Δ | encode ns/op | Δ | dec allocs |
 |---------|------:|----:|------:|----:|:--:|
-| tiny     |  990 → 643 | −35 % | 465 → 364 | −22 % | 12 → 12 |
-| scalars  | 1206 → 800 | −34 % |1036 → 722 | −30 % | 12 → 12 |
-| string   |1464 → 914 | −38 % | 955 → 751 | −21 % | 18 → 15 |
-| bytes    |1242 → 801 | −36 % | 624 → 485 | −22 % | 14 → 13 |
-| repeated |1767 →1063 | −40 % |1071 → 812 | −24 % | 20 → 16 |
-| nested   |1650 → 960 | −42 % |1278 → 745 | −42 % | 24 → 18 |
-| default  |2434 →1593 | −35 % |2005 →1420 | −29 % | 32 → 22 |
-| large    |3224 →1838 | −43 % |2558 →1908 | −25 % | 40 → 25 |
+| tiny     |  990 → 643 | -35 % | 465 → 364 | -22 % | 12 → 12 |
+| scalars  | 1206 → 800 | -34 % |1036 → 722 | -30 % | 12 → 12 |
+| string   |1464 → 914 | -38 % | 955 → 751 | -21 % | 18 → 15 |
+| bytes    |1242 → 801 | -36 % | 624 → 485 | -22 % | 14 → 13 |
+| repeated |1767 →1063 | -40 % |1071 → 812 | -24 % | 20 → 16 |
+| nested   |1650 → 960 | -42 % |1278 → 745 | -42 % | 24 → 18 |
+| default  |2434 →1593 | -35 % |2005 →1420 | -29 % | 32 → 22 |
+| large    |3224 →1838 | -43 % |2558 →1908 | -25 % | 40 → 25 |
 
-**On-device (Release, Hermes), default payload — before → after ops/sec:**
+**On-device (Release, Hermes), default payload - before → after ops/sec:**
 
 | | iOS encode | iOS decode | Android encode | Android decode |
 |--|------:|------:|------:|------:|
@@ -66,7 +66,7 @@ of linear; drop a redundant `memset`.
 All 6 tests stay green, including the ASan/UBSan fuzz harness (no memory-safety
 regression) and the native round-trip. Encoded sizes are unchanged.
 
-### Rejected experiment — AnyMap-bypass via a JSON string boundary
+### Rejected experiment - AnyMap-bypass via a JSON string boundary
 
 Hypothesis: since Hermes' `JSON` is fast and passing one string across JSI is
 cheap, a `decodeToJson` / `encodeFromJson` pair (C++ emits/consumes JSON text,
@@ -104,7 +104,7 @@ be per-message typed-struct codegen (a protobuf.js-style generated C++ codec).
 
 ## Methodology
 
-- **Message**: `acme.User` (`example/proto/example.proto`) — covers scalars,
+- **Message**: `acme.User` (`example/proto/example.proto`) - covers scalars,
   string, bytes, repeated and nested fields.
 - **8 payload profiles** (`bench/payloads.mjs`), shared across every bench:
   `tiny` (id only), `scalars`, `string`, `bytes`, `repeated`, `nested`,
@@ -121,7 +121,7 @@ be per-message typed-struct codegen (a protobuf.js-style generated C++ codec).
 - Wire sizes verified identical between the native (nanopb) and protobuf.js
   encoders for every profile.
 
-## 1 · Raw codec — native C++ (`-O2`, M1 Pro)
+## 1 · Raw codec - native C++ (`-O2`, M1 Pro)
 
 No JSI, no JS runtime: the encode/decode functions called directly. ns/op is the
 median-of-trials throughput; allocs is heap allocations per op.
@@ -137,11 +137,11 @@ median-of-trials throughput; allocs is heap allocations per op.
 | default  |  70 | 2005 | 0.50M | 2041 | 2434 | 0.41M | 2458 | 10/32 |
 | large    | 267 | 2558 | 0.39M | 2708 | 3224 | 0.31M | 3208 | 13/40 |
 
-Decode is consistently slower and allocates 2–3× more than encode: it
+Decode is consistently slower and allocates 2-3× more than encode: it
 constructs an `AnyMap` (`std::unordered_map` + `std::variant`, nested objects
 and arrays), whereas encode walks an existing map straight into a flat buffer.
 
-## 2 · protobuf.js vs JSON — node / V8 (host)
+## 2 · protobuf.js vs JSON - node / V8 (host)
 
 ns/op (median-of-trials). Sizes match the nanopb encoder exactly.
 
@@ -157,16 +157,16 @@ ns/op (median-of-trials). Sizes match the nanopb encoder exactly.
 | large    | 267 | 501 | 2408 | 834 | 1270 | 1635 | 0.53× |
 
 On V8, protobuf.js (JIT-compiled, plain-object codec) **outruns the native C++
-codec** for this workload — confirming the codec is bottlenecked on AnyMap
+codec** for this workload - confirming the codec is bottlenecked on AnyMap
 marshalling, not protobuf encoding. JSON is fastest for most encodes; protobuf
 is ~**3× smaller** on the wire.
 
-## 3 · On-device (Hermes, Release) — NitroProtobuf vs protobuf.js vs JSON
+## 3 · On-device (Hermes, Release) - NitroProtobuf vs protobuf.js vs JSON
 
 ops/sec in **millions**. `n`=NitroProtobuf (C++/JSI), `p`=protobuf.js (JS),
 `j`=JSON. Higher is better.
 
-### iOS — iPhone 17 Pro simulator
+### iOS - iPhone 17 Pro simulator
 
 | profile | pbB/jsB | enc n | enc p | enc j | dec n | dec p | dec j |
 |---------|:------:|----:|----:|----:|----:|----:|----:|
@@ -179,7 +179,7 @@ ops/sec in **millions**. `n`=NitroProtobuf (C++/JSI), `p`=protobuf.js (JS),
 | default  | 70/210 | 0.143 | 0.051 | 0.345 | 0.181 | 0.096 | 0.437 |
 | large    |267/501 | 0.097 | 0.021 | 0.140 | 0.145 | 0.057 | 0.169 |
 
-### Android — android-35 arm64 emulator
+### Android - android-35 arm64 emulator
 
 | profile | pbB/jsB | enc n | enc p | enc j | dec n | dec p | dec j |
 |---------|:------:|----:|----:|----:|----:|----:|----:|
@@ -198,10 +198,10 @@ M1 host).
 ## Analysis
 
 **NitroProtobuf vs protobuf.js (the like-for-like comparison).** Under Hermes,
-NitroProtobuf encodes **2–7× faster** (`default` 0.143 vs 0.051 M/s = 2.8×;
+NitroProtobuf encodes **2-7× faster** (`default` 0.143 vs 0.051 M/s = 2.8×;
 `string` 0.309 vs 0.045 = 6.9×; `large` 0.097 vs 0.021 = 4.6× on iOS). Decode is
 **~2× faster** for medium/large payloads (`default` 0.181 vs 0.096; `large`
-0.145 vs 0.057) but **slower for tiny/bytes** (`tiny` 0.362 vs 1.317) — when the
+0.145 vs 0.057) but **slower for tiny/bytes** (`tiny` 0.362 vs 1.317) - when the
 payload is a few bytes, the fixed JSI crossing costs more than protobuf.js's
 interpreted-but-in-runtime decode. Net: NitroProtobuf is the clear win for
 encode and for non-trivial decode; protobuf.js only edges it on the smallest
@@ -214,7 +214,7 @@ both protobuf codecs almost everywhere (`default` encode: JSON 0.345 vs nitro
 bytes (network, persistence, IPC); stay on JSON when you do not.
 
 **JSI overhead.** Native `default` encode is ~2.0 µs (0.50 M/s); from JS it is
-~7.0 µs (0.143 M/s) — the Hermes↔C++ JSI crossing + ArrayBuffer/AnyMap
+~7.0 µs (0.143 M/s) - the Hermes↔C++ JSI crossing + ArrayBuffer/AnyMap
 marshalling adds **~5 µs/encode** and **~3 µs/decode**. This fixed cost is why
 `tiny` doesn't encode proportionally faster than `default`, and why batching
 many small messages into one call beats many tiny calls.
@@ -222,7 +222,7 @@ many small messages into one call beats many tiny calls.
 **Where the codec spends time.** That host V8 protobuf.js beats native C++ is the
 tell: the codec's hot path is `AnyMap` (`std::variant` + `unordered_map`)
 construction/traversal, decimal parsing of 64-bit strings, and per-op heap
-allocation (decode: 12–40 allocations), not nanopb. The biggest future win would
+allocation (decode: 12-40 allocations), not nanopb. The biggest future win would
 be reducing decode-side allocations / AnyMap churn, not the wire codec.
 
 ## Caveats

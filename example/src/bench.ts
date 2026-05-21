@@ -132,7 +132,7 @@ export function runBench(platform: string): BenchResults {
   return out
 }
 
-// Compact, fully on-screen table (ops/sec in millions) — readable via
+// Compact, fully on-screen table (ops/sec in millions) - readable via
 // `agent-device snapshot --json` since Hermes Release console.log is not
 // surfaced to the host. n=NitroProtobuf p=protobuf.js j=JSON.
 export function formatResults(r: BenchResults): string {

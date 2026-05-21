@@ -1,5 +1,5 @@
 // Expo config plugin: regenerate protobuf sources during `expo prebuild` so
-// the generated registry / nanopb C / TS types are always fresh — no manual
+// the generated registry / nanopb C / TS types are always fresh - no manual
 // `proto:generate` step for Expo apps.
 //
 // app.json / app.config.js:

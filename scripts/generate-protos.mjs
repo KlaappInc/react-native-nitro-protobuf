@@ -574,7 +574,7 @@ async function main() {
   messages.sort((a, b) => a.fullName.localeCompare(b.fullName))
 
   // Validate nanopb .options for static fields. Skipped with --skipProtoc,
-  // which only emits the registry (no nanopb compilation) — used by unit tests.
+  // which only emits the registry (no nanopb compilation) - used by unit tests.
   // In --strict mode, require explicit options for every static field (no
   // defaults injected). Otherwise the synthesized wildcard defaults cover them.
   if (!args.skipProtoc && strict) {
