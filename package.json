@@ -1,7 +1,10 @@
 {
-  "name": "react-native-nitro-protobuf",
+  "name": "@klaappinc/react-native-nitro-protobuf",
   "version": "1.0.0",
-  "description": "react-native-nitro-protobuf",
+  "description": "Blazing-fast Protocol Buffers for React Native, powered by Nitro + nanopb (C++).",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "lib/index",
   "module": "lib/index",
   "types": "lib/index.d.ts",
@@ -41,6 +44,8 @@
     "lint-ci": "eslint \"**/*.{js,ts,tsx}\" -f @jamesacarr/github-actions",
     "proto:generate": "node scripts/generate-protos.mjs",
     "test": "node --test",
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
     "typescript": "tsc",
     "specs": "tsc --noEmit false && nitrogen --logLevel=\"debug\"",
     "example:install": "npm --prefix example install",

@@ -7,7 +7,7 @@
 // JSON line prefixed with BENCH_RESULT: (read via `agent-device logs` / Metro
 // / logcat) and returned for on-screen display.
 import protobuf from 'protobufjs'
-import { NitroProtobuf } from 'react-native-nitro-protobuf'
+import { NitroProtobuf } from '@klaappinc/react-native-nitro-protobuf'
 
 const MESSAGE = 'acme.User'
 

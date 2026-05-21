@@ -13,7 +13,7 @@ import {
   SafeAreaProvider,
   SafeAreaView,
 } from 'react-native-safe-area-context';
-import { NitroProtobuf } from 'react-native-nitro-protobuf';
+import { NitroProtobuf } from '@klaappinc/react-native-nitro-protobuf';
 import { runBench, formatResults } from './src/bench';
 
 const MESSAGE_NAME = 'acme.User';

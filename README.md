@@ -33,7 +33,7 @@ and produces payloads **~3× smaller than JSON**. See [PERFORMANCE.md](./PERFORM
 ## Installation
 
 ```sh
-npm install react-native-nitro-protobuf react-native-nitro-modules
+npm install @klaappinc/react-native-nitro-protobuf react-native-nitro-modules
 ```
 
 ```sh
@@ -43,7 +43,7 @@ cd ios && pod install
 > **Expo:** add the config plugin to `app.json` and run `npx expo prebuild`.
 >
 > ```json
-> { "plugins": [["react-native-nitro-protobuf", { "protoDir": "proto" }]] }
+> { "plugins": [["@klaappinc/react-native-nitro-protobuf", { "protoDir": "proto" }]] }
 > ```
 
 ## Quickstart
@@ -153,7 +153,7 @@ The generated module gives you type-safe helpers; you can also call the runtime
 object directly (untyped):
 
 ```ts
-import { NitroProtobuf } from 'react-native-nitro-protobuf'
+import { NitroProtobuf } from '@klaappinc/react-native-nitro-protobuf'
 
 const bytes = NitroProtobuf.encode('acme.User', { id: 1, name: 'Ada' })
 const user = NitroProtobuf.decode('acme.User', bytes)
@@ -243,6 +243,22 @@ bun run ios      # run the example app
 
 The `example/` app is a playground/round-trip demo; `bench/` holds the benchmark
 suite used for [PERFORMANCE.md](./PERFORMANCE.md).
+
+CI (`.github/workflows/test.yml`) runs typecheck, build, and the test suite
+(including the native ASan/UBSan fuzz harness) on every push and pull request.
+
+## Releasing
+
+Publishing to npm is automated (`.github/workflows/release.yml`):
+
+1. Bump `version` in `package.json`.
+2. Tag and push: `git tag vX.Y.Z && git push --tags` (or publish a GitHub Release).
+3. CI runs the full test suite, then publishes `@klaappinc/react-native-nitro-protobuf`
+   to npm. The tag must match `package.json` (`vX.Y.Z`) or the job fails.
+
+One-time setup: add an npm automation token as the `NPM_TOKEN` repository secret
+(Settings → Secrets and variables → Actions), with publish rights to the
+`@klaappinc` scope.
 
 ## License
 
