@@ -486,6 +486,11 @@ function writeMergedOptions(
   return tempDir
 }
 
+// "my_field" -> "myField" (proto3 JSON uses lowerCamelCase field names).
+function lowerCamelCase(name) {
+  return name.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
+}
+
 // "acme.User" -> "AcmeUser"; "acme.Foo.Bar" -> "AcmeFooBar".
 function tsTypeName(fullName) {
   const clean = fullName.startsWith('.') ? fullName.slice(1) : fullName
@@ -655,6 +660,38 @@ function generateTypes(messages, opts = {}) {
     const s = specFor(cleanName(m.fullName))
     if (Object.keys(s).length) conv[cleanName(m.fullName)] = s
   }
+
+  // Canonical proto3-JSON metadata: per field [propName, jsonName, kind] where
+  // kind drives value formatting (r:/m: prefixes for repeated/map). Collects
+  // enum maps too (JSON uses enum value names regardless of the --enums option).
+  const jsonKind = (field) => {
+    let base = ''
+    if (field.resolvedType instanceof protobuf.Enum) {
+      enums.set(field.resolvedType.fullName, field.resolvedType.values)
+      base = `e:${enumKey(field.resolvedType)}`
+    } else if (field.resolvedType instanceof protobuf.Type) {
+      const fn = cleanName(field.resolvedType.fullName)
+      if (fn === WKT_TIMESTAMP) base = 'ts'
+      else if (fn === WKT_DURATION) base = 'dur'
+      else base = byName.has(fn) ? fn : '' // unsupported WKT -> passthrough
+    } else if (I64_TYPES.has(field.type)) {
+      base = 'i64'
+    } else if (field.type === 'bytes') {
+      base = 'by'
+    }
+    if (field.map) return `m:${base}`
+    if (field.repeated) return `r:${base}`
+    return base
+  }
+  const jsonMeta = {}
+  for (const m of messages) {
+    jsonMeta[cleanName(m.fullName)] = m.fieldsArray.map((f) => [
+      f.name,
+      lowerCamelCase(f.name),
+      jsonKind(f),
+    ])
+  }
+
   const enumMaps = {}
   for (const [fullName, values] of enums) {
     const d = {}
@@ -752,6 +789,70 @@ function generateTypes(messages, opts = {}) {
     ''
   )
 
+  // Canonical proto3 JSON (camelCase keys, RFC3339 Timestamp, "Ns" Duration,
+  // base64 bytes, enum names, 64-bit as strings). Distinct from the encode/decode
+  // JS shape. Struct/Value/Any are not supported and are passed through as-is.
+  out.push(
+    `const _jf: Record<string, [string, string, string][]> = ${JSON.stringify(jsonMeta)}`,
+    `const _bigint = ${opts.bigint}`,
+    'const _B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"',
+    'function _bytesToB64(a: number[]): string {',
+    '  let s = ""',
+    '  for (let i = 0; i < a.length; i += 3) {',
+    '    const t = (a[i] << 16) | ((a[i + 1] ?? 0) << 8) | (a[i + 2] ?? 0)',
+    '    s += _B64[(t >> 18) & 63] + _B64[(t >> 12) & 63]',
+    '    s += i + 1 < a.length ? _B64[(t >> 6) & 63] : "="',
+    '    s += i + 2 < a.length ? _B64[t & 63] : "="',
+    '  }',
+    '  return s',
+    '}',
+    'function _toJsonVal(kind: string, v: any): any {',
+    '  if (v == null) return v',
+    '  if (kind.slice(0, 2) === "r:") return Array.isArray(v) ? v.map((x) => _toJsonVal(kind.slice(2), x)) : v',
+    '  if (kind.slice(0, 2) === "m:") { const o: any = {}; for (const k in v) o[k] = _toJsonVal(kind.slice(2), v[k]); return o }',
+    '  if (kind === "") return v',
+    '  if (kind === "i64") return String(v)',
+    '  if (kind === "by") return typeof v === "string" ? v : _bytesToB64(v)',
+    '  if (kind === "ts") return v instanceof Date ? v.toISOString() : v',
+    '  if (kind === "dur") return typeof v === "number" ? String(v / 1000) + "s" : v',
+    '  if (kind.slice(0, 2) === "e:") return _enums[kind.slice(2)].d[v] ?? v',
+    '  return _toJson(kind, v)',
+    '}',
+    'function _toJson(name: string, m: any): any {',
+    '  const meta = _jf[name]',
+    '  if (!meta || m == null || typeof m !== "object") return m',
+    '  const o: any = {}',
+    '  for (const [prop, jn, kind] of meta) {',
+    '    if (m[prop] == null) continue',
+    '    o[jn] = _toJsonVal(kind, m[prop])',
+    '  }',
+    '  return o',
+    '}',
+    'function _fromJsonVal(kind: string, v: any): any {',
+    '  if (v == null) return v',
+    '  if (kind.slice(0, 2) === "r:") return Array.isArray(v) ? v.map((x) => _fromJsonVal(kind.slice(2), x)) : v',
+    '  if (kind.slice(0, 2) === "m:") { const o: any = {}; for (const k in v) o[k] = _fromJsonVal(kind.slice(2), v[k]); return o }',
+    '  if (kind === "") return v',
+    '  if (kind === "i64") return _bigint ? BigInt(v) : String(v)',
+    '  if (kind === "by" || kind === "ts") return v',
+    '  if (kind === "dur") return typeof v === "string" ? parseFloat(v) * 1000 : v',
+    '  if (kind.slice(0, 2) === "e:") return typeof v === "number" ? v : (_enums[kind.slice(2)].e[v] ?? v)',
+    '  return _fromJson(kind, v)',
+    '}',
+    'function _fromJson(name: string, j: any): any {',
+    '  const meta = _jf[name]',
+    '  if (!meta || j == null || typeof j !== "object") return j',
+    '  const o: any = {}',
+    '  for (const [prop, jn, kind] of meta) {',
+    '    const val = j[jn] !== undefined ? j[jn] : j[prop]',
+    '    if (val == null) continue',
+    '    o[prop] = _fromJsonVal(kind, val)',
+    '  }',
+    '  return o',
+    '}',
+    ''
+  )
+
   out.push(
     'export function encode<K extends NitroProtobufMessageName>(',
     '  name: K,',
@@ -774,6 +875,22 @@ function generateTypes(messages, opts = {}) {
     '): number {',
     '  return _len(name, message)',
     '}',
+    '',
+    '/** Convert a message to canonical proto3 JSON (camelCase keys, etc.). */',
+    'export function toJson<K extends NitroProtobufMessageName>(',
+    '  name: K,',
+    '  message: NitroProtobufMessages[K]',
+    '): unknown {',
+    '  return _toJson(name, message)',
+    '}',
+    '',
+    '/** Parse canonical proto3 JSON into a message. */',
+    'export function fromJson<K extends NitroProtobufMessageName>(',
+    '  name: K,',
+    '  json: unknown',
+    '): NitroProtobufMessages[K] {',
+    '  return _fromJson(name, json) as NitroProtobufMessages[K]',
+    '}',
     ''
   )
 
@@ -794,6 +911,8 @@ function generateTypes(messages, opts = {}) {
       `  encode: (m: ${T}): ArrayBuffer => _enc('${full}', m),`,
       `  decode: (b: ArrayBuffer): ${T} => _dec('${full}', b) as ${T},`,
       `  byteLength: (m: ${T}): number => _len('${full}', m),`,
+      `  toJson: (m: ${T}): unknown => _toJson('${full}', m),`,
+      `  fromJson: (j: unknown): ${T} => _fromJson('${full}', j) as ${T},`,
       `  fields: [${fieldsMeta.join(', ')}] as const,`,
       '}',
       ''
