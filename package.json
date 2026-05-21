@@ -77,6 +77,7 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
+    "grpc-tools": "^1.13.0",
     "protobufjs": "^8.4.0"
   },
   "peerDependencies": {
