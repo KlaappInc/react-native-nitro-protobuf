@@ -45,6 +45,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx}\" \"scripts/**/*.mjs\" \"bench/**/*.mjs\" app.plugin.js",
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\" \"scripts/**/*.mjs\" \"bench/**/*.mjs\" app.plugin.js",
     "proto:generate": "node scripts/generate-protos.mjs",
+    "proto:watch": "node scripts/generate-protos.mjs generate --watch",
     "test": "node --test",
     "build": "tsc",
     "prepublishOnly": "npm run build",
