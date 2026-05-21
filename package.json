@@ -33,6 +33,7 @@
     "ios/**/*.cpp",
     "ios/**/*.swift",
     "app.plugin.js",
+    "metro.js",
     "nitro.json",
     "*.podspec",
     "README.md"
