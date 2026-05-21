@@ -192,6 +192,61 @@ test('resolves well-known types and emits typed API + conversions', () => {
   assert.match(types, /_toTimestamp|_fromTimestamp/)
 })
 
+test('--bigint and --enums string change the generated types + conversions', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nitro-proto-'))
+  const protoDir = path.join(tmp, 'proto')
+  const outDir = path.join(tmp, 'generated')
+
+  writeProto(
+    protoDir,
+    'm.proto',
+    [
+      'syntax = "proto3";',
+      'package acme;',
+      'enum Role { ROLE_UNSPECIFIED = 0; ADMIN = 1; USER = 2; }',
+      'message Account {',
+      '  int64 balance = 1;',
+      '  Role role = 2;',
+      '  repeated uint64 ledger = 3;',
+      '}',
+    ].join('\n')
+  )
+
+  const result = runGenerator(
+    [
+      '--protoDir',
+      protoDir,
+      '--outDir',
+      outDir,
+      '--skipProtoc',
+      '--bigint',
+      '--enums',
+      'string',
+    ],
+    tmp
+  )
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+  const types = fs.readFileSync(path.join(outDir, 'nitro-protobuf.ts'), 'utf8')
+  assert.match(types, /balance\?: bigint/)
+  assert.match(types, /ledger\?: \(bigint\)\[\]/)
+  assert.match(types, /role\?: 'ROLE_UNSPECIFIED' \| 'ADMIN' \| 'USER'/)
+  assert.match(types, /"balance":"i64"/)
+  assert.match(types, /"role":"e:acme_Role"/)
+  assert.match(types, /"ADMIN":1/)
+  assert.match(types, /return BigInt\(v\)/)
+
+  // Default (no flags): 64-bit stays string, enum stays number.
+  const def = path.join(tmp, 'gen-default')
+  const r2 = runGenerator(
+    ['--protoDir', protoDir, '--outDir', def, '--skipProtoc'],
+    tmp
+  )
+  assert.equal(r2.status, 0, r2.stderr || r2.stdout)
+  const t2 = fs.readFileSync(path.join(def, 'nitro-protobuf.ts'), 'utf8')
+  assert.match(t2, /balance\?: string/)
+  assert.match(t2, /role\?: number/)
+})
+
 test('fails when proto directory is missing', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nitro-proto-'))
   const protoDir = path.join(tmp, 'missing')
