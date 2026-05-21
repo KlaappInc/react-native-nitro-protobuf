@@ -53,6 +53,7 @@ namespace margelo::nitro::nitroprotobuf {
       // Methods
       virtual std::shared_ptr<ArrayBuffer> encode(const std::string& messageName, const std::shared_ptr<AnyMap>& message) = 0;
       virtual std::shared_ptr<AnyMap> decode(const std::string& messageName, const std::shared_ptr<ArrayBuffer>& data) = 0;
+      virtual double byteLength(const std::string& messageName, const std::shared_ptr<AnyMap>& message) = 0;
       virtual std::vector<std::string> listMessages() = 0;
 
     protected:

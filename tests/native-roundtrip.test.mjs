@@ -223,6 +223,7 @@ test('native round-trip encode/decode', (t) => {
       '  message->setObject("address", address);',
       '',
       '  auto buffer = encodeMessage(*info, message);',
+      '  expect(encodedByteLength(*info, message) == buffer->size(), "byteLength matches encoded size");',
       '  auto decoded = decodeMessage(*info, buffer);',
       '',
       '  expect(decoded->getDouble("id") == 7, "id round-trip");',
