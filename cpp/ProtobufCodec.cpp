@@ -90,9 +90,6 @@ void ensureSupportedField(const MessageInfo& message, const FieldInfo& field, co
   if (field.is_map) {
     throw std::runtime_error("Map fields are not supported: " + toFieldPath(message, field));
   }
-  if (field.is_oneof || PB_HTYPE(iter.type) == PB_HTYPE_ONEOF) {
-    throw std::runtime_error("oneof fields are not supported: " + toFieldPath(message, field));
-  }
   if (PB_ATYPE(iter.type) != PB_ATYPE_STATIC) {
     throw std::runtime_error("Only static nanopb fields are supported: " + toFieldPath(message, field));
   }
@@ -401,8 +398,14 @@ void populateMessage(const MessageInfo& info, void* message, const AnyObject& ob
         }
       }
     } else {
-      if (PB_HTYPE(iter.type) == PB_HTYPE_OPTIONAL && iter.pSize != nullptr) {
+      const auto htype = PB_HTYPE(iter.type);
+      if (htype == PB_HTYPE_OPTIONAL && iter.pSize != nullptr) {
         *reinterpret_cast<bool*>(iter.pSize) = true;
+      } else if (htype == PB_HTYPE_ONEOF && iter.pSize != nullptr) {
+        // Select this union member; nanopb encodes only the member whose tag
+        // matches which_<oneof>. Setting it per provided member is last-wins,
+        // consistent with proto oneof semantics (the union is shared).
+        *reinterpret_cast<pb_size_t*>(iter.pSize) = static_cast<pb_size_t>(iter.tag);
       }
 
       auto* data = static_cast<uint8_t*>(iter.pData);
@@ -504,6 +507,27 @@ void populateMessage(const MessageInfo& info, void* message, const AnyObject& ob
   }
 }
 
+// Whether a found field is set and should be surfaced on decode:
+//   - SINGULAR (implicit proto3): always (zero/empty is a valid value)
+//   - OPTIONAL (explicit presence): the has-bit
+//   - ONEOF: the which_<oneof> selector equals this member's tag
+//   - REPEATED/FIXARRAY: non-empty
+bool fieldIsPresent(const pb_field_iter_t& iter) {
+  const auto htype = PB_HTYPE(iter.type);
+  if (htype == PB_HTYPE_OPTIONAL && iter.pSize != nullptr) {
+    return *reinterpret_cast<const bool*>(iter.pSize);
+  }
+  if (htype == PB_HTYPE_ONEOF && iter.pSize != nullptr) {
+    return *reinterpret_cast<const pb_size_t*>(iter.pSize) == iter.tag;
+  }
+  if (htype == PB_HTYPE_REPEATED || htype == PB_HTYPE_FIXARRAY) {
+    const pb_size_t count =
+        iter.pSize != nullptr ? *reinterpret_cast<const pb_size_t*>(iter.pSize) : iter.array_size;
+    return count > 0;
+  }
+  return true;
+}
+
 AnyValue decodeSingleValue(const MessageInfo& messageInfo, const FieldInfo& fieldInfo, const pb_field_iter_t& iter, size_t index) {
   const auto* data = static_cast<const uint8_t*>(iter.pData) + (index * iter.data_size);
   switch (fieldInfo.type) {
@@ -561,16 +585,7 @@ AnyValue decodeSingleValue(const MessageInfo& messageInfo, const FieldInfo& fiel
           continue;
         }
         ensureSupportedField(*nestedInfo, nestedField, nestedIter);
-        bool includeField = true;
-        const auto htype = PB_HTYPE(nestedIter.type);
-        if (htype == PB_HTYPE_OPTIONAL && nestedIter.pSize != nullptr) {
-          includeField = *reinterpret_cast<const bool*>(nestedIter.pSize);
-        } else if (htype == PB_HTYPE_REPEATED || htype == PB_HTYPE_FIXARRAY) {
-          const pb_size_t count =
-              nestedIter.pSize != nullptr ? *reinterpret_cast<const pb_size_t*>(nestedIter.pSize) : nestedIter.array_size;
-          includeField = count > 0;
-        }
-        if (!includeField) {
+        if (!fieldIsPresent(nestedIter)) {
           continue;
         }
 
@@ -606,16 +621,7 @@ std::shared_ptr<AnyMap> decodeMessageInternal(const MessageInfo& info, const voi
     }
     ensureSupportedField(info, field, iter);
 
-    bool includeField = true;
-    const auto htype = PB_HTYPE(iter.type);
-    if (htype == PB_HTYPE_OPTIONAL && iter.pSize != nullptr) {
-      includeField = *reinterpret_cast<const bool*>(iter.pSize);
-    } else if (htype == PB_HTYPE_REPEATED || htype == PB_HTYPE_FIXARRAY) {
-      const pb_size_t count = iter.pSize != nullptr ? *reinterpret_cast<const pb_size_t*>(iter.pSize) : iter.array_size;
-      includeField = count > 0;
-    }
-
-    if (!includeField) {
+    if (!fieldIsPresent(iter)) {
       continue;
     }
 

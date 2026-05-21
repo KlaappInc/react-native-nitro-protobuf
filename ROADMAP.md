@@ -51,23 +51,21 @@ Legend: **✅ done** · **◑ partial** · **🔜 next** · **🧭 planned** · 
 
 ## Coverage (schema features)
 
-- 🔜 **`oneof`.** High demand. The registry already marks `oneof` fields; the
-  codec rejects them at encode time today with a clear message. **Deliberately
-  not rushed:** nanopb represents a oneof as a C `union` plus a `which_<name>`
-  selector, so encode must set the selector to the chosen member's tag and write
-  only that union member, and decode must read the selector and surface only the
-  present field. That is pointer-precise work in the hot path that **must be
-  proven memory-safe under the ASan/UBSan fuzz harness** (with oneof messages
-  added to the corpus) before shipping. Tracked as the next native item.
+- ✅ **`oneof`** (1.2.0). Each member is an optional field; encode sets the
+  nanopb `which_<oneof>` selector to the chosen member's tag and writes only that
+  union member, decode surfaces only the present member. Verified by round-trip
+  (string/int/message members) and ~40k adversarial decodes + bit-flips under the
+  ASan/UBSan fuzz harness.
 - 🔜 **`map<K,V>`.** Marked in the registry, rejected by the codec today. nanopb
   models a map as a repeated *synthetic* entry submessage `{ key = 1; value = 2 }`
   with a map flag; encode/decode must iterate JS object keys ⇄ those entries.
   Same bar as oneof: implement + fuzz under ASan/UBSan before shipping. Workaround
   now: model it as `repeated Entry { key; value; }`.
-- 🧭 **`google.protobuf.Struct` / `Value` / `ListValue` / `Any`.** Blocked on
-  `map` + `oneof` + recursion. `Struct` ≈ `map<string, Value>`; `Value` is a
-  `oneof`. Once map/oneof land, `Struct`/`Value`/`ListValue` map naturally to
-  plain JS values; `Any` needs a type-URL registry. Larger effort.
+- 🧭 **`google.protobuf.Struct` / `Value` / `ListValue` / `Any`.** `oneof` now
+  works; still blocked on `map` + recursion. `Struct` ≈ `map<string, Value>`;
+  `Value` is a `oneof` of scalars/Struct/ListValue. Once `map` lands,
+  `Struct`/`Value`/`ListValue` map naturally to plain JS values; `Any` needs a
+  type-URL registry. Larger effort.
 - 🧭 **proto2 syntax.** Currently proto3 only. proto2 explicit presence /
   required / extensions / group fields are a meaningful generator + codec change.
 - 🧭 **Explicit field presence (`optional` in proto3).** Distinguish "unset" from

@@ -216,6 +216,66 @@ int main() {
     }
   }
 
+  // ---------- 11. oneof: round-trip each member + adversarial decode ----------
+  const MessageInfo* pick = getMessageInfo("acme.Pick");
+  ok(pick != nullptr, "acme.Pick registered");
+  if (pick) {
+    // string member
+    expectNoCrash("oneof string rt", [&]{
+      auto m = AnyMap::make(); m->setDouble("id", 1); m->setString("name", "Bob");
+      auto d = decodeMessage(*pick, encodeMessage(*pick, m));
+      ok(d->getString("name") == "Bob", "oneof name present");
+      ok(d->getMap().count("age") == 0 && d->getMap().count("inner") == 0, "oneof others absent");
+    });
+    // int member (switches the union)
+    expectNoCrash("oneof int rt", [&]{
+      auto m = AnyMap::make(); m->setDouble("age", 7);
+      auto d = decodeMessage(*pick, encodeMessage(*pick, m));
+      ok(d->getDouble("age") == 7, "oneof age present");
+      ok(d->getMap().count("name") == 0, "oneof name absent when age set");
+    });
+    // message member
+    expectNoCrash("oneof msg rt", [&]{
+      auto m = AnyMap::make(); AnyObject in; in["label"] = AnyValue(std::string("L"));
+      m->setObject("inner", in);
+      auto d = decodeMessage(*pick, encodeMessage(*pick, m));
+      ok(d->getMap().count("inner") == 1, "oneof inner present");
+    });
+    // no member set -> nothing present (which_ == 0)
+    expectNoCrash("oneof none", [&]{
+      auto m = AnyMap::make(); m->setDouble("id", 9);
+      auto d = decodeMessage(*pick, encodeMessage(*pick, m));
+      ok(d->getMap().count("name") == 0 && d->getMap().count("age") == 0 && d->getMap().count("inner") == 0, "oneof empty");
+    });
+
+    // Adversarial: random garbage decoded as Pick must never crash (exercises
+    // the which_ selector + union member decode on hostile input).
+    {
+      std::mt19937 rng(0xBADF00D);
+      std::uniform_int_distribution<int> byte(0,255);
+      for (int iter=0; iter<20000; ++iter) {
+        size_t len = rng()%96;
+        std::vector<uint8_t> g(len);
+        for (auto& b: g) b = (uint8_t)byte(rng);
+        if (g.empty()) g.reserve(1);
+        auto ab = ArrayBuffer::copy(g.data(), g.size());
+        expectNoCrash("decode random garbage (Pick)", [&]{ decodeMessage(*pick, ab); });
+      }
+    }
+    // Bit-flips of a valid oneof buffer (message member = largest union slot).
+    {
+      auto m = AnyMap::make(); AnyObject in; in["label"] = AnyValue(std::string("hello"));
+      m->setObject("inner", in);
+      auto buf = encodeMessage(*pick, m);
+      std::vector<uint8_t> full(buf->data(), buf->data()+buf->size());
+      for (size_t i=0;i<full.size();++i) for (int bit=0;bit<8;++bit) {
+        auto f=full; f[i]^=(1<<bit);
+        auto ab=ArrayBuffer::copy(f.data(),f.size());
+        expectNoCrash("decode oneof bitflip", [&]{ decodeMessage(*pick, ab); });
+      }
+    }
+  }
+
   std::printf("\n==== HARNESS DONE ====\nPASS checks: %d\nFAIL checks: %d\n", g_ok, g_fail);
   return g_fail==0 ? 0 : 1;
 }
