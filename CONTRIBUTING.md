@@ -8,9 +8,9 @@ This repo follows **Git Flow** with automated releases.
 |--------|---------|-----------|
 | `main` | Production. Only release merges land here; every commit is a released version. | yes |
 | `develop` | Integration branch (the **default**). All features merge here. | yes |
-| `feature/*` | New work. Branch off `develop`, PR back into `develop`. | — |
-| `hotfix/*` | Urgent production fix. Branch off `main`, PR into `main`, then back-merge to `develop`. | — |
-| `release/*` | Optional. A stabilization branch off `develop` before a release (not required — see Releases). | — |
+| `feature/*` | New work. Branch off `develop`, PR back into `develop`. |: |
+| `hotfix/*` | Urgent production fix. Branch off `main`, PR into `main`, then back-merge to `develop`. |: |
+| `release/*` | Optional. A stabilization branch off `develop` before a release (not required: see Releases). |: |
 
 ```
 feature/x ─┐
@@ -26,7 +26,7 @@ hotfix/z ──────────────────▶ main ─┘ �
    git switch -c feature/my-thing
    ```
 2. Commit using **Conventional Commits** (`feat:`, `fix:`, `perf:`, `docs:`,
-   `chore:`, `test:`, `ci:`, `refactor:`) — this drives the changelog and version.
+   `chore:`, `test:`, `ci:`, `refactor:`): this drives the changelog and version.
 3. Open a PR into `develop`. CI (`lint` + `test`, incl. the native ASan/UBSan
    fuzz) must pass before merge.
 4. Hotfixes branch off `main`, PR into `main`, and are back-merged into `develop`.
@@ -42,7 +42,7 @@ Releases are cut from `main` by [release-please](https://github.com/googleapis/r
    suite and publish `@klaappinc/react-native-nitro-protobuf` to npm.
 
 (A manual `release/*` branch is an alternative if you need to stabilize before
-merging to `main`, but it is not required — release-please handles versioning.)
+merging to `main`, but it is not required: release-please handles versioning.)
 
 ## Local development
 

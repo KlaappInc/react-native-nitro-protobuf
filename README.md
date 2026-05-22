@@ -245,9 +245,9 @@ s.ttl // 30000 (ms)
 `Duration` is milliseconds. `Struct`, `Value`, `ListValue` and `Any` are **not**
 supported (they need recursive `Value`); see [ROADMAP.md](./ROADMAP.md).
 
-`oneof` is supported: each member is an optional field on the message — set one,
+`oneof` is supported: each member is an optional field on the message: set one,
 and only the set member is encoded and surfaced on decode. `map<K, V>` is
-supported too — a map field maps to a JS object (`{ [key]: value }`).
+supported too: a map field maps to a JS object (`{ [key]: value }`).
 
 ### Runtime helpers
 
