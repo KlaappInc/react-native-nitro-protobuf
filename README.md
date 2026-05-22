@@ -26,11 +26,15 @@ and produces payloads **~3× smaller than JSON**. See [PERFORMANCE.md](./PERFORM
   automatically; override per field or globally only when you want to.
 - 🔒 **Generated TypeScript types** - a typed `Message.encode/decode` object per
   message plus a generic `encode`/`decode`, fully inferred.
+- 🧩 **Broad schema coverage** - proto3 + proto2, every scalar type, `enum`,
+  nested messages, `repeated`, **`oneof`**, **`map<K,V>`**.
 - 🕒 **Well-known types** - `Timestamp`, `Duration`, `Empty`, `FieldMask` and the
   scalar wrappers, with natural JS mapping (`Timestamp` ⇄ `Date`, `Duration` ⇄ ms).
-- 👀 **Watch mode** - `generate --watch` regenerates on `.proto` changes.
-- 📱 **iOS & Android**, New Architecture.
-- 🧩 **Expo config plugin** - regenerates on `expo prebuild`.
+- 🧰 **Runtime helpers** - `byteLength()`, field reflection, canonical proto3
+  JSON (`toJson`/`fromJson`), and typed `ProtobufError`s.
+- 🔢 **Type options** - `bigint` for 64-bit fields, string-literal enums.
+- 👀 **Watch mode** + **Metro plugin** - regenerate on `.proto` changes / Metro start.
+- 📱 **iOS & Android**, New Architecture · 🧩 **Expo config plugin**.
 
 ## Requirements
 
@@ -174,6 +178,7 @@ Options:
   --protoc <path>       Use a specific protoc (default: bundled)
   --nanopb <path>       Use a specific protoc-gen-nanopb (default: auto-installed)
   --strict              Require explicit .options for every static field
+  --skipProtoc          Generate the registry + TS types only (no nanopb sources)
   --bigint              Type 64-bit fields as bigint (default: decimal string)
   --enums <mode>        Enum representation: "string" or "number" (default)
   --watch, -w           Regenerate on .proto changes (debounced)
@@ -357,8 +362,7 @@ Deprecations are announced in the changelog and kept for at least one minor
 release before removal in the next major. The protobuf **wire format is stable**
 (it is standard protobuf); upgrades never change bytes on the wire for a given
 `.proto`. Releases use [Conventional Commits](https://www.conventionalcommits.org)
-
-- release-please (see [Releasing](#releasing)).
+(see [Releasing](#releasing)).
 
 ## Errors & validation
 
@@ -432,18 +436,24 @@ CI (`.github/workflows/test.yml`) runs typecheck, build, and the test suite
 
 ## Releasing
 
-Releases are automated with [Conventional Commits](https://www.conventionalcommits.org)
-and [release-please](https://github.com/googleapis/release-please):
+Publishing is automated by `release.yml`, which runs the full test suite and then
+`npm publish` on every **published GitHub Release**:
 
-1. Land changes on `main` using Conventional Commit messages (`feat:`, `fix:`, …).
-2. release-please keeps an open "release" PR that bumps the version and updates
-   `CHANGELOG.md`. Review and merge it when you want to ship.
-3. Merging creates a GitHub Release + tag, which triggers `release.yml` to run the
-   test suite and publish `@klaappinc/react-native-nitro-protobuf` to npm.
+1. Bump `version` in `package.json` (Conventional Commits: `feat:`/`fix:` →
+   minor/patch) and land it on `main`.
+2. Create a GitHub Release with the matching tag (`vX.Y.Z`):
+   `gh release create vX.Y.Z --target main --notes "…"`.
+3. `release.yml` runs CI (lint + tests + ASan/UBSan fuzz), then publishes
+   `@klaappinc/react-native-nitro-protobuf` to npm.
 
-One-time setup: add an npm automation token as the `NPM_TOKEN` repository secret
-(Settings → Secrets and variables → Actions) with publish rights to the
-`@klaappinc` scope.
+> A [release-please](https://github.com/googleapis/release-please) workflow is
+> also configured to draft the release PR automatically, but it needs the org
+> setting **“Allow GitHub Actions to create pull requests”** enabled; until then,
+> cut releases manually as above.
+
+One-time setup: add an npm **automation** token (2FA-exempt) as the `NPM_TOKEN`
+repository secret (Settings → Secrets and variables → Actions) with publish
+rights to the `@klaappinc` scope.
 
 ## Contributing
 
