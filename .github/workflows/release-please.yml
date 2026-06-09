@@ -1,8 +1,5 @@
 name: release-please
 
-# Maintains a release PR (version bump in package.json + CHANGELOG.md from
-# Conventional Commits). Merging that PR creates a GitHub Release + tag, which
-# triggers release.yml to publish to npm.
 on:
   push:
     branches: [main]
@@ -11,14 +8,12 @@ permissions:
   contents: write
   pull-requests: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v4
         with:
+          target-branch: main
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
