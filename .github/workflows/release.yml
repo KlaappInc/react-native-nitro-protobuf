@@ -16,6 +16,10 @@ jobs:
   publish:
     needs: test
     runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       contents: read
     steps:
