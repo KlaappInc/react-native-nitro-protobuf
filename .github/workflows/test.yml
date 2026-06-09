@@ -47,7 +47,7 @@ jobs:
       # the generator with explicit --protoc / --nanopb and compile under clang;
       # without these on PATH the native tests self-skip. nanopb is pinned to the
       # vendored runtime version (cpp/nanopb).
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
