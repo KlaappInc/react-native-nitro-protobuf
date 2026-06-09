@@ -5,7 +5,8 @@
       "release-type": "node",
       "package-name": "@klaappinc/react-native-nitro-protobuf",
       "changelog-path": "CHANGELOG.md",
-      "include-component-in-tag": false
+      "include-component-in-tag": false,
+      "include-v-in-tag": true
     }
   }
 }
