@@ -37,7 +37,7 @@ jobs:
 
       - run: npm ci
 
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -55,6 +55,6 @@ jobs:
           clang++ -std=c++20 -c cpp/ProtobufCodec.cpp cpp/Base64.cpp \
             -I .codeql-shim -I cpp -I cpp/nanopb -I "$NM/core" -I "$NM/utils" -I "$RN"
 
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with:
           category: '/language:${{ matrix.language }}'
